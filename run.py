@@ -108,7 +108,9 @@ def main():
             meta = voice.synth(body["hook"], body["lines"],
                                cfg["voice"]["primary"], vdir,
                                rate=cfg["voice"].get("rate", "+0%"))
-            shots = broll.resolve(body.get("shots", []))
+            prod = body.get("product") or {}
+            shots = broll.resolve(body.get("shots", []), cfg,
+                                  product_media=prod.get("media"))
             template = ("broll" if any(sh.get("file") for sh in shots)
                         else "clean-card")
             mp4 = render.render(meta, vdir, body=body, shots=shots)

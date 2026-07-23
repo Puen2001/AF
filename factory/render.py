@@ -107,31 +107,30 @@ def build_ass(words: list[dict], out: Path):
     out.write_text(ASS_HEADER + "\n".join(events) + "\n")
 
 
-def _segments_from_shots(shots: list[dict], body: dict, words: list[dict],
+def _segments_from_shots(shots: list[dict], line_spans: list[dict],
                          dur: float) -> list[dict]:
-    """Map the shot plan (line ranges) to time segments via proportional
-    line lengths — b-roll cuts don't need frame-exact sync."""
-    hook_words = [w for w in words if w["seg"] == "hook"]
-    hook_end = (hook_words[-1]["end"] + 0.3) if hook_words else 0.0
-    lines = body.get("lines", [])
-    total = sum(len(l) for l in lines) or 1
-    bounds, acc = [hook_end], 0
-    for l in lines:
-        acc += len(l)
-        bounds.append(hook_end + (dur - hook_end) * acc / total)
+    """Map the shot plan (line ranges) to time segments using the ACTUAL spoken
+    span of each line (from voice line_spans) — cuts land on narration boundaries,
+    not a proportional guess."""
+    end_of = {ls["line"]: ls["end"] for ls in line_spans}
+    last = max(end_of) if end_of else 0
 
-    def line_end(i: int) -> float:  # line 0 = hook
-        return hook_end if i <= 0 else bounds[min(i, len(bounds) - 1)]
+    def line_end(i: int) -> float:
+        i = max(0, min(int(i), last))
+        # walk down to the nearest known line end
+        while i not in end_of and i > 0:
+            i -= 1
+        return end_of.get(i, dur)
 
     segs, t = [], 0.0
     for s in sorted(shots, key=lambda s: int(s.get("from", 0))):
-        end = line_end(int(s.get("to", 0)))
-        if end <= t + 1.0:
+        end = line_end(s.get("to", 0))
+        if end <= t + 1.0:                 # too short to be a real cut — skip
             continue
-        segs.append({"len": end - t, "file": s.get("file")})
+        segs.append({"len": round(end - t, 2), "file": s.get("file")})
         t = end
     if t < dur - 0.05:
-        segs.append({"len": dur - t, "file": None})
+        segs.append({"len": round(dur - t, 2), "file": None})
     return segs
 
 
@@ -144,8 +143,14 @@ def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
         d = seg["len"] + XFADE
         if seg["file"]:
             inputs += ["-stream_loop", "-1", "-t", f"{d:.2f}", "-i", seg["file"]]
-            fc += (f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-                   f"crop=1080:1920,fps=30,eq=brightness=-0.06:saturation=0.95,"
+            # oversize → crop → slow Ken Burns zoom (alternating in/out) so even
+            # static footage has life; brightness/sat pull keeps captions readable
+            zin = "min(zoom+0.0006,1.14)" if i % 2 == 0 else "max(1.14-0.0006*on,1.0)"
+            fc += (f"[{i}:v]scale=1188:2112:force_original_aspect_ratio=increase,"
+                   f"crop=1188:2112,fps=30,"
+                   f"zoompan=z='{zin}':d=1:x='iw/2-(iw/zoom/2)':"
+                   f"y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30,"
+                   f"eq=brightness=-0.06:saturation=0.95,"
                    f"trim=duration={d:.2f},setpts=PTS-STARTPTS[p{i}];")
         else:
             c0, c1 = pals[i % len(pals)]
@@ -171,9 +176,10 @@ def render(voice_meta: dict, out_dir: Path, body: dict | None = None,
            shots: list[dict] | None = None) -> Path:
     build_ass(voice_meta["words"], out_dir / "captions.ass")
     dur = voice_meta["duration"] + 0.5
+    spans = voice_meta.get("line_spans", [])
 
-    if shots and any(s.get("file") for s in shots) and body:
-        segs = _segments_from_shots(shots, body, voice_meta["words"], dur)
+    if shots and any(s.get("file") for s in shots) and spans:
+        segs = _segments_from_shots(shots, spans, dur)
     else:  # gradient scenes only
         n = max(1, round(dur / SCENE_LEN))
         segs = [{"len": dur / n, "file": None} for _ in range(n)]

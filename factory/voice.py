@@ -60,15 +60,19 @@ def synth(hook: str, body_lines: list[str], voice: str, out_dir: Path,
     line_gap = (cfg or {}).get("line_gap", LINE_GAP)
 
     segments = [("hook", hook)] + [("body", ln) for ln in body_lines]
-    parts, words, offset = [], [], 0.0
+    parts, words, line_spans, offset = [], [], [], 0.0
+    # line index 0 = hook, 1..n = body lines — lets render align cuts to narration
     for i, (seg, text) in enumerate(segments):
         part = out_dir / f"seg{i:02d}.mp3"
         w = _synth_backend(text, voice, rate, part, cfg)
         for x in w:
             words.append({"text": x["text"], "start": x["start"] + offset,
-                          "end": x["end"] + offset, "seg": seg})
+                          "end": x["end"] + offset, "seg": seg, "line": i})
+        dur = _duration(part)
+        line_spans.append({"line": i, "seg": seg,
+                           "start": round(offset, 3), "end": round(offset + dur, 3)})
         gap = GAP if seg == "hook" else line_gap
-        offset += _duration(part) + gap
+        offset += dur + gap
         parts.append((part, gap))
 
     audio = out_dir / "voice.mp3"
@@ -81,7 +85,7 @@ def synth(hook: str, body_lines: list[str], voice: str, out_dir: Path,
     cmd += ["-filter_complex", fc, "-map", "[out]", str(audio)]
     subprocess.run(cmd, check=True)
 
-    meta = {"audio": str(audio), "words": words,
+    meta = {"audio": str(audio), "words": words, "line_spans": line_spans,
             "duration": round(_duration(audio), 2)}
     (out_dir / "timings.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
     return meta

@@ -1,87 +1,196 @@
-"""Stage 3.5 — b-roll research: resolve the script's shot plan to licensed clips.
+"""Stage 3.5 — footage finding. Resolve each shot's search query to the best
+available licensed clip, across sources, with a quality gate and query broadening.
 
-Pexels (primary) and Pixabay (fallback) free APIs; both licenses permit
-commercial use without attribution. No key / no result → the shot stays
-unresolved and the renderer falls back to a gradient scene for that segment.
-Clips cache by query so repeat topics cost zero calls.
+Source chain (best → fallback), all commercial-use-safe:
+  1. product media   — the product's own listing video (highest relevance, when given)
+  2. Pexels          — keyed, curated, portrait-native (best when PEXELS_API_KEY set)
+  3. Pixabay         — keyed fallback
+  4. Wikimedia       — KEYLESS: works with zero API keys (CC/PD; grab-bag quality)
+  5. gradient        — render.py fallback when nothing resolves
+
+Each candidate is scored on resolution, orientation, and duration; sub-HD junk is
+rejected. If a specific query finds nothing, it is broadened before giving up.
 """
 import hashlib
 import os
+import time
 from pathlib import Path
 
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "assets" / "cache" / "broll"
+# Wikimedia policy requires a descriptive UA with contact — reduces 429s
+UA = "shorts-factory/1.0 (https://github.com/Puen2001/AF) requests"
 
 
-def _pexels(query: str) -> str | None:
+def _get(url, **kw):
+    """GET with polite backoff on Wikimedia 429 rate-limiting."""
+    kw.setdefault("headers", {}).setdefault("User-Agent", UA)
+    for attempt in range(3):
+        r = requests.get(url, **kw)
+        if r.status_code == 429:
+            time.sleep(2 * (attempt + 1))
+            continue
+        return r
+    return r
+
+MIN_H = 640          # reject clips shorter than this — no 480p mush
+DUR_MIN, DUR_MAX = 3, 40
+
+
+def _score(c: dict) -> float:
+    """Rank candidates: resolution + portrait bonus + sane duration."""
+    h, w, d = c["height"], c["width"], c.get("duration") or 8
+    s = min(h, 2160) / 120.0
+    if h < MIN_H:
+        s -= 100                       # effectively disqualify
+    s += 18 if h >= w else 0           # portrait needs no crop → prefer it
+    s += 12 if h >= 1080 else 0        # HD bonus
+    s += 8 if DUR_MIN <= d <= DUR_MAX else -8
+    return s
+
+
+def _pexels(query: str) -> list[dict]:
     key = os.environ.get("PEXELS_API_KEY")
     if not key:
-        return None
-    r = requests.get("https://api.pexels.com/videos/search",
-                     headers={"Authorization": key},
-                     params={"query": query, "orientation": "portrait",
-                             "size": "medium", "per_page": 6},
-                     timeout=30)
-    r.raise_for_status()
-    for v in r.json().get("videos", []):
-        if v.get("duration", 0) < 4:
-            continue
-        files = sorted((f for f in v.get("video_files", [])
-                        if f.get("height", 0) >= 1280
-                        and f.get("width", 0) <= f.get("height", 0)),
-                       key=lambda f: f["height"])
-        if files:
-            return files[0]["link"]
-    return None
+        return []
+    try:
+        r = requests.get("https://api.pexels.com/videos/search",
+                         headers={"Authorization": key},
+                         params={"query": query, "orientation": "portrait",
+                                 "per_page": 8}, timeout=30)
+        r.raise_for_status()
+        out = []
+        for v in r.json().get("videos", []):
+            files = [f for f in v.get("video_files", []) if f.get("height")]
+            best = max(files, key=lambda f: f["height"], default=None)
+            if best:
+                out.append({"url": best["link"], "width": best.get("width", 0),
+                            "height": best["height"], "duration": v.get("duration"),
+                            "source": "pexels"})
+        return out
+    except Exception:
+        return []
 
 
-def _pixabay(query: str) -> str | None:
+def _pixabay(query: str) -> list[dict]:
     key = os.environ.get("PIXABAY_API_KEY")
     if not key:
-        return None
-    r = requests.get("https://pixabay.com/api/videos/",
-                     params={"key": key, "q": query, "per_page": 6},
-                     timeout=30)
-    r.raise_for_status()
-    for v in r.json().get("hits", []):
-        if v.get("duration", 0) < 4:
+        return []
+    try:
+        r = requests.get("https://pixabay.com/api/videos/",
+                         params={"key": key, "q": query, "per_page": 8}, timeout=30)
+        r.raise_for_status()
+        out = []
+        for v in r.json().get("hits", []):
+            f = v.get("videos", {}).get("large") or v.get("videos", {}).get("medium")
+            if f and f.get("url"):
+                out.append({"url": f["url"], "width": f.get("width", 0),
+                            "height": f.get("height", 0), "duration": v.get("duration"),
+                            "source": "pixabay"})
+        return out
+    except Exception:
+        return []
+
+
+def _wikimedia(query: str) -> list[dict]:
+    """Keyless CC/PD video from Wikimedia Commons. Works with no API keys at all."""
+    api = "https://commons.wikimedia.org/w/api.php"
+    try:
+        s = _get(api, params={
+            "action": "query", "format": "json", "list": "search",
+            "srsearch": f"filetype:video {query}", "srnamespace": 6, "srlimit": 8},
+            timeout=20)
+        s.raise_for_status()
+        titles = [r["title"] for r in s.json().get("query", {}).get("search", [])]
+        if not titles:
+            return []
+        info = _get(api, params={
+            "action": "query", "format": "json", "prop": "imageinfo",
+            "iiprop": "url|size", "titles": "|".join(titles[:8])},
+            timeout=20)
+        info.raise_for_status()
+        out = []
+        for p in info.json().get("query", {}).get("pages", {}).values():
+            ii = (p.get("imageinfo") or [{}])[0]
+            title = p.get("title", "").lower()
+            # skip anything that reads as a disaster/graphic clip (safety)
+            if any(w in title for w in ("crash", "wreck", "fire", "accident",
+                                        "explosion", "war", "death")):
+                continue
+            if ii.get("url") and ii.get("height"):
+                out.append({"url": ii["url"], "width": ii.get("width", 0),
+                            "height": ii["height"], "duration": ii.get("duration"),
+                            "source": "wikimedia"})
+        return out
+    except Exception:
+        return []
+
+
+def _broaden(query: str):
+    """Yield the query, then progressively broader versions (drop trailing words)."""
+    words = (query or "").split()
+    yield query
+    if len(words) >= 3:
+        yield " ".join(words[:2])
+    if len(words) >= 2:
+        yield words[0]
+
+
+def _best_for(query: str) -> dict | None:
+    for q in _broaden(query):
+        if not q:
             continue
-        best = v.get("videos", {}).get("large") or v.get("videos", {}).get("medium")
-        if best and best.get("url"):
-            return best["url"]
+        cands = _pexels(q) + _pixabay(q) + _wikimedia(q)
+        cands = [c for c in cands if c["height"] >= MIN_H
+                 and (c.get("duration") is None or c["duration"] >= DUR_MIN)]
+        if cands:
+            return max(cands, key=_score)
     return None
 
 
-def resolve(shots: list[dict]) -> list[dict]:
-    """Attach a local clip file to each shot (or file=None if unresolvable)."""
+def _download(url: str) -> str | None:
     CACHE.mkdir(parents=True, exist_ok=True)
+    ext = ".mp4" if ".mp4" in url.lower() else (".webm" if "webm" in url.lower() else ".mp4")
+    path = CACHE / (hashlib.sha1(url.encode()).hexdigest()[:14] + ext)
+    if path.exists():
+        return str(path)
+    try:
+        with _get(url, stream=True, timeout=180) as r:
+            r.raise_for_status()
+            written = 0
+            with open(path, "wb") as f:
+                for chunk in r.iter_content(1 << 16):
+                    written += len(chunk)
+                    if written > 200 * 1024 * 1024:
+                        raise ValueError("clip exceeds 200MB cap")
+                    f.write(chunk)
+        return str(path)
+    except Exception:
+        path.unlink(missing_ok=True)
+        return None
+
+
+def resolve(shots: list[dict], cfg: dict | None = None,
+            product_media: list[str] | None = None) -> list[dict]:
+    """Attach a local clip file to each shot (file=None if unresolvable → gradient).
+    product_media (direct clip URLs from the product listing) is tried first."""
+    media_pool = list(product_media or [])
     out = []
-    for s in shots or []:
-        q = (s.get("query") or "").strip()
-        if not q:
-            out.append({**s, "file": None})
+    for i, s in enumerate(shots or []):
+        if s.get("file"):
+            out.append(s)
             continue
-        path = CACHE / (hashlib.sha1(q.encode()).hexdigest()[:12] + ".mp4")
-        if path.exists():
-            out.append({**s, "file": str(path)})
-            continue
-        url = None
-        try:
-            url = _pexels(q) or _pixabay(q)
-            if url:
-                with requests.get(url, stream=True, timeout=120) as r:
-                    r.raise_for_status()
-                    written = 0
-                    with open(path, "wb") as f:
-                        for chunk in r.iter_content(1 << 16):
-                            written += len(chunk)
-                            if written > 200 * 1024 * 1024:
-                                raise ValueError("clip exceeds 200MB cap")
-                            f.write(chunk)
-        except Exception:
-            path.unlink(missing_ok=True)
-            url = None
-        out.append({**s, "file": str(path) if url else None})
+        chosen = None
+        # product's own footage first — most relevant + license-clean
+        if i < len(media_pool):
+            chosen = _download(media_pool[i])
+        if not chosen:
+            best = _best_for((s.get("query") or "").strip())
+            if best:
+                chosen = _download(best["url"])
+                if chosen:
+                    s = {**s, "source": best["source"], "res": best["height"]}
+        out.append({**s, "file": chosen})
     return out
