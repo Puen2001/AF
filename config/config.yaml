@@ -34,7 +34,7 @@ soft_cta: "ลิงก์อยู่ในแคปชันเลย"
 voice:
   primary: th-TH-PremwadeeNeural
   alt: th-TH-NiwatNeural
-  rate: "+0%"
+  rate: "-10%"        # calmer pace — natural Thai delivery, not rushed
 
 publish:
   privacy: unlisted    # launch-warming; switch to public when confident

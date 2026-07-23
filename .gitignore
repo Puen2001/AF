@@ -9,3 +9,7 @@ assets/cache/
 __pycache__/
 *.pyc
 .DS_Store
+
+# music beds are operator-supplied (licensing varies) — keep local
+assets/music/*
+!assets/music/.gitkeep
