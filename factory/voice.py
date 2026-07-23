@@ -13,7 +13,8 @@ from pathlib import Path
 
 import edge_tts
 
-GAP = 0.35  # silence between hook and body
+GAP = 0.5   # silence between hook and body
+LINE_GAP = 0.42  # silence between each body line — breathing room
 
 
 def _duration(path: Path) -> float:
@@ -52,25 +53,33 @@ def _synth_backend(text: str, voice: str, rate: str, out: Path,
 
 def synth(hook: str, body_lines: list[str], voice: str, out_dir: Path,
           rate: str = "+0%", cfg: dict | None = None) -> dict:
+    """Synthesize hook + each body line SEPARATELY and concat with a real pause
+    between each — gives breathing room between phrases (operator wants space,
+    not a rushed run-on). Word timings accumulate across the gaps."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    hook_mp3, body_mp3 = out_dir / "hook.mp3", out_dir / "body.mp3"
+    line_gap = (cfg or {}).get("line_gap", LINE_GAP)
 
-    hook_words = _synth_backend(hook, voice, rate, hook_mp3, cfg)
-    body_words = _synth_backend(". ".join(body_lines), voice, rate, body_mp3, cfg)
-
-    hook_dur = _duration(hook_mp3)
-    offset = hook_dur + GAP
-    words = ([{**w, "seg": "hook"} for w in hook_words] +
-             [{"text": w["text"], "start": w["start"] + offset,
-               "end": w["end"] + offset, "seg": "body"} for w in body_words])
+    segments = [("hook", hook)] + [("body", ln) for ln in body_lines]
+    parts, words, offset = [], [], 0.0
+    for i, (seg, text) in enumerate(segments):
+        part = out_dir / f"seg{i:02d}.mp3"
+        w = _synth_backend(text, voice, rate, part, cfg)
+        for x in w:
+            words.append({"text": x["text"], "start": x["start"] + offset,
+                          "end": x["end"] + offset, "seg": seg})
+        gap = GAP if seg == "hook" else line_gap
+        offset += _duration(part) + gap
+        parts.append((part, gap))
 
     audio = out_dir / "voice.mp3"
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(hook_mp3), "-i", str(body_mp3),
-         "-filter_complex",
-         f"[0:a]apad=pad_dur={GAP}[h];[h][1:a]concat=n=2:v=0:a=1[out]",
-         "-map", "[out]", str(audio)],
-        check=True)
+    cmd = ["ffmpeg", "-y", "-v", "error"]
+    for part, _ in parts:
+        cmd += ["-i", str(part)]
+    fc = "".join(f"[{i}:a]apad=pad_dur={g}[a{i}];" for i, (_, g) in enumerate(parts))
+    fc += "".join(f"[a{i}]" for i in range(len(parts)))
+    fc += f"concat=n={len(parts)}:v=0:a=1[out]"
+    cmd += ["-filter_complex", fc, "-map", "[out]", str(audio)]
+    subprocess.run(cmd, check=True)
 
     meta = {"audio": str(audio), "words": words,
             "duration": round(_duration(audio), 2)}

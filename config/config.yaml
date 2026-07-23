@@ -83,7 +83,8 @@ voice:
   provider: edge-tts  # edge-tts (cloud, free) | f5-clone (local voice-clone on gotham)
   primary: th-TH-PremwadeeNeural
   alt: th-TH-NiwatNeural
-  rate: "-10%"        # calmer pace — natural Thai delivery, not rushed
+  rate: "-20%"        # slow, deliberate delivery — operator wants unhurried
+  line_gap: 0.42      # pause between phrases for breathing room
   # f5-clone: point ref_audio at a clean ~30s Thai voice sample (Puen's voice) +
   # ref_text = its transcript; F5-TTS-THAI (GPU on gotham) clones it zero-shot.
   ref_audio: assets/voice/ref.wav
