@@ -1,0 +1,10 @@
+[Unit]
+Description=Shorts Factory — daily production run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/shorts-factory
+ExecStart=%h/shorts-factory/.venv/bin/python run.py daily
+TimeoutStartSec=3600

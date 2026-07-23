@@ -36,6 +36,10 @@ voice:
   alt: th-TH-NiwatNeural
   rate: "+0%"
 
+publish:
+  privacy: unlisted    # launch-warming; switch to public when confident
+  category_id: "28"    # Science & Technology
+
 paths:
   db: factory.db
   queue: queue

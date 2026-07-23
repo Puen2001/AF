@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory import broll, db, director, discover, render, scriptgen, voice  # noqa: E402
+from factory import (approve, broll, db, director, discover, publish,  # noqa: E402
+                     render, scriptgen, voice)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -34,7 +35,8 @@ def load_secrets():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["daily", "dry-run", "weekly", "status"])
+    ap.add_argument("command", choices=["daily", "dry-run", "weekly", "status",
+                                        "poll", "yt-auth"])
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
@@ -48,6 +50,17 @@ def main():
 
     if args.command == "weekly":
         print(json.dumps(director.analyze(conn, cfg), ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "yt-auth":
+        creds = publish.yt_creds(interactive=True)
+        print("YouTube auth OK" if creds else "YouTube auth FAILED")
+        return
+
+    if args.command == "poll":  # every 15 min via timer: approvals → publish
+        handled = approve.poll(conn, cfg)
+        posted = publish.process(conn, cfg)
+        print(f"[poll] approvals handled: {handled}, published: {posted}")
         return
 
     limit = args.limit or (1 if args.command == "dry-run" else cfg["daily_quota"])
@@ -98,7 +111,13 @@ def main():
         except Exception as e:
             print(f"[produce] script {s['id']} FAILED: {e}")
 
-    # TODO phase 3: approve.run(), publish.run()
+    sent = approve.send_pending(conn, cfg)
+    if sent:
+        print(f"[approve] sent {sent} video(s) to Telegram")
+    approve.poll(conn, cfg)
+    posted = publish.process(conn, cfg)
+    if posted:
+        print(f"[publish] posted {posted} video(s)")
     print(json.dumps(db.counts(conn), indent=2))
 
 

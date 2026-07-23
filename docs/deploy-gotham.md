@@ -7,7 +7,8 @@ All free. One-time setup:
 git clone https://github.com/Puen2001/AF.git shorts-factory && cd shorts-factory
 
 # 2. Python env (system python is fine, 3.12+)
-python3 -m venv .venv && .venv/bin/pip install pyyaml requests edge-tts
+python3 -m venv .venv && .venv/bin/pip install pyyaml requests edge-tts \
+    google-api-python-client google-auth-oauthlib
 
 # 3. FFmpeg — Fedora's ffmpeg-free has NO x264 encoder; use the RPM Fusion build:
 sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
@@ -32,12 +33,23 @@ Runs daily without anyone logged in:
 loginctl enable-linger $USER   # once, lets user timers run at boot
 ```
 
-Unit files land in `deploy/` when phase 3 is built:
-`shorts-factory.service` (oneshot: `.venv/bin/python run.py daily`) +
-`shorts-factory.timer` (`OnCalendar=daily`, `Persistent=true`), installed to
-`~/.config/systemd/user/` with `systemctl --user enable --now shorts-factory.timer`.
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/*.service deploy/*.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now shorts-factory.timer shorts-poll.timer
+```
 
-Failure alerts go to Telegram via the approve-stage bot token (same `secrets.env`).
+Two timers: `shorts-factory` (daily 09:00 — full production run) and
+`shorts-poll` (every 15 min — processes ✅/❌ approval taps and publishes).
+
+## YouTube auth (once, on any machine with a browser)
+
+Set `YOUTUBE_CLIENT_SECRET_JSON` in `config/secrets.env` (OAuth client secret
+file from Google Cloud Console), then `python run.py yt-auth` — the saved token
+(`config/yt_token.json`) refreshes headlessly afterwards. Note: while the Google
+OAuth app is in Testing mode the token dies every 7 days — submit the app for
+verification (needs a public privacy-policy URL) to make it permanent.
 
 ## Sanity check
 

@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS metrics (
     captured_at TEXT NOT NULL,
     views INTEGER, likes INTEGER, clicks INTEGER, commissions_thb REAL
 );
+CREATE TABLE IF NOT EXISTS kv (
+    k TEXT PRIMARY KEY,
+    v TEXT
+);
 """
 
 
@@ -65,7 +69,21 @@ def connect(db_path: str | None = None) -> sqlite3.Connection:
     for col, typ in (("score", "REAL"), ("research", "TEXT")):
         if col not in cols:
             conn.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
+    vcols = {r[1] for r in conn.execute("PRAGMA table_info(videos)")}
+    if "tg_msg_id" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN tg_msg_id INTEGER")
     return conn
+
+
+def kv_get(conn, k: str, default: str | None = None) -> str | None:
+    row = conn.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+    return row["v"] if row else default
+
+
+def kv_set(conn, k: str, v: str):
+    conn.execute("INSERT INTO kv (k, v) VALUES (?,?) "
+                 "ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
+    conn.commit()
 
 
 def upsert_product(conn, *, source, source_key, name, category=None, price_thb=None,
