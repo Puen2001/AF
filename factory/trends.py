@@ -44,6 +44,11 @@ DISCOVER_PROMPT = """คุณคือครีเอทีฟช่องว�
 วันนี้: {today}
 เทศกาล/ช่วงเวลาที่กำลังจะมาถึง (ควรทำคอนเทนต์ล่วงหน้าก่อนกระแสพีค): {events}
 
+คลิปสั้น "outlier" ที่กำลังปังในหมวดนี้ (วิวเยอะทั้งที่ช่องเล็ก = เนื้อหาชนะ ทำซ้ำได้):
+{outliers}
+→ ใช้เป็นแรงบันดาลใจว่า "หัวข้อ/มุมแบบไหนกำลังเวิร์ก" แล้วเล่าเป็นเรื่องของเราเอง
+  (ห้ามลอก ห้ามเอาคลิป/ฟุตเทจเขามาใช้ — เอาแค่ไอเดียหัวข้อที่พิสูจน์แล้วว่าปัง)
+
 ค้นเว็บหาว่าอะไร "กำลังฮอต" ในไทยตอนนี้ แล้วเสนอ {n} หัวข้อที่ฮุคคนได้ — ให้มองหาโดยเฉพาะ:
 - โมเมนต์วัฒนธรรม/ไวรัล: คนดัง ยูทูบเบอร์ ดารา นักกีฬา (เช่นตอน Speed มาไทย), อีเวนต์, มีม,
   เกม/หนัง/เพลงที่เพิ่งดัง, ดราม่าที่คนพูดถึง
@@ -73,6 +78,13 @@ def discover(conn, cfg) -> dict:
     events = _active_events(cfg)
     events_str = "; ".join(f"{e['event']} (สินค้าที่เกี่ยว: {e['hints']})"
                            for e in events) or "ไม่มีเทศกาลใกล้"
+    outliers_str = "(ปิดการ mine)"
+    if tr.get("mine_outliers", True):
+        from . import outliers
+        qs = tr.get("outlier_queries",
+                    ["แกดเจ็ต gadget shorts", "ของมันต้องมี review shorts",
+                     "รู้หรือไม่ เทคโนโลยี shorts"])
+        outliers_str = outliers.as_signal(outliers.mine(qs))
     try:
         result = claude_p(DISCOVER_PROMPT.format(
             identity=br.get("identity", ""), voice=br.get("voice", ""),
@@ -80,7 +92,7 @@ def discover(conn, cfg) -> dict:
             interests=", ".join(au.get("interests", [])),
             sources=", ".join(tr.get("sources", [])),
             today=date.today().isoformat(), events=events_str,
-            n=tr.get("topics_per_run", 5)),
+            outliers=outliers_str, n=tr.get("topics_per_run", 5)),
             cfg.get("model", "sonnet"), tools="WebSearch", timeout=420)
     except Exception as e:
         return {"topics_added": 0, "error": str(e)}
