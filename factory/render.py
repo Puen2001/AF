@@ -142,9 +142,14 @@ def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
     for i, seg in enumerate(segs):
         d = seg["len"] + XFADE
         if seg["file"]:
-            inputs += ["-stream_loop", "-1", "-t", f"{d:.2f}", "-i", seg["file"]]
+            is_img = str(seg["file"]).lower().rsplit(".", 1)[-1] in (
+                "jpg", "jpeg", "png", "webp")
+            if is_img:                       # still photo — loop it for the segment
+                inputs += ["-loop", "1", "-t", f"{d:.2f}", "-i", seg["file"]]
+            else:
+                inputs += ["-stream_loop", "-1", "-t", f"{d:.2f}", "-i", seg["file"]]
             # oversize → crop → slow Ken Burns zoom (alternating in/out) so even
-            # static footage has life; brightness/sat pull keeps captions readable
+            # a still product photo has life; brightness/sat pull keeps captions readable
             zin = "min(zoom+0.0006,1.14)" if i % 2 == 0 else "max(1.14-0.0006*on,1.0)"
             fc += (f"[{i}:v]scale=1188:2112:force_original_aspect_ratio=increase,"
                    f"crop=1188:2112,fps=30,"

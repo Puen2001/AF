@@ -101,17 +101,23 @@ REVISE_PROMPT = """สคริปต์วิดีโอสั้นนี้�
 ตอบเป็น JSON โครงเดียวกับสคริปต์เดิมเท่านั้น ห้ามมีข้อความอื่น"""
 
 
-SHOTS_PROMPT = """คุณคือ editor วางแผนภาพ (shot list) ให้วิดีโอสั้นแนวเล่าเรื่องแกดเจ็ต
+SHOTS_PROMPT = """คุณคือ editor วางภาพ (shot list) ให้วิดีโอสั้น — ภาพต้อง "เล่าเรื่อง" ตามที่พูด
 สคริปต์ (line 0 คือฮุค, ที่เหลือคือเนื้อเรื่องตามลำดับ):
 {numbered_lines}
+สินค้าหลักในคลิป (ถ้ามี): {subject}
 
-สร้าง shot list 3-5 ช็อตครอบคลุมทั้งคลิป: แต่ละช็อตระบุช่วง line (from-to),
-คำค้นภาษาอังกฤษสำหรับ stock footage ที่เฉพาะเจาะจงและเห็นภาพจริง
-(เช่น "usb c charger closeup hand plugging" ไม่ใช่ "technology") และประเภทช็อต
-เลือกภาพที่เล่าเรื่องเดียวกับประโยคนั้น ไม่ใช่ภาพ generic
+กติกาภาพ (บังคับ — นี่คือหัวใจ):
+1. ภาพต้องตรงกับ "คำนาม/กริยาจริง" ในประโยคนั้น ไม่ใช่ภาพ mood กว้างๆ
+   (พูด "แบตบวม" → โชว์แบตบวม, พูด "ตรา 3C" → โชว์ป้ายรับรอง, ไม่ใช่ภาพเครื่องบินลอยๆ)
+2. **ต้องโชว์ตัวสินค้าจริง** อย่างน้อยที่: ช็อตแรก (ฮุค — โชว์สินค้ากำลังทำงาน/ผลลัพธ์),
+   ช่วงกลาง 1 ครั้ง, และช็อตปิด (CTA). ห้ามมี 2 บรรทัดติดกันที่ไม่มีสินค้า/บริบทตรงของสินค้า
+3. ช็อตฮุคห้ามเป็นภาพ establishing/mood — ต้องเป็นสินค้ากำลังใช้งานหรือภาพที่สะดุด
+4. query = ภาษาอังกฤษเฉพาะเจาะจง เห็นภาพจริง (เช่น "power bank charging phone closeup",
+   "hand holding power bank 3C label macro") ไม่ใช่ "technology"
+5. type="product" = โชว์ตัวสินค้า, "context" = ภาพประกอบเรื่อง. ต้องมี product ≥ 2 ช็อต
 
-ตอบเป็น JSON เท่านั้น:
-{{"shots": [{{"from": 0, "to": 1, "query": "...", "type": "closeup|in-use|context"}}]}}"""
+ตอบเป็น JSON เท่านั้น (3-6 ช็อต):
+{{"shots": [{{"from": 0, "to": 1, "query": "...", "type": "product|context"}}]}}"""
 
 TOPIC_WRITE_PROMPT = """คุณคือครีเอเตอร์วิดีโอสั้นสายสาระ-ความรู้ไทย ที่คนดูค้างจนจบเป็นประจำ
 เขียนสคริปต์ 1 เวอร์ชัน เล่า "เรื่อง" นี้ ด้วยมุมเล่า (angle): {angle_desc}
@@ -247,8 +253,9 @@ def generate_one(conn, product, cfg, suggested_angle: str | None = None) -> dict
     try:
         numbered = "\n".join(
             f"{i}. {t}" for i, t in enumerate([body["hook"], *body["lines"]]))
+        subject = product["name"]
         body["shots"] = claude_p(SHOTS_PROMPT.format(
-            numbered_lines=numbered), model).get("shots", [])
+            numbered_lines=numbered, subject=subject), model).get("shots", [])
     except Exception:
         body["shots"] = []
 
@@ -358,8 +365,9 @@ def generate_from_topic(conn, topic, cfg, suggested_angle: str | None = None) ->
     try:
         numbered = "\n".join(
             f"{i}. {t}" for i, t in enumerate([body["hook"], *body["lines"]]))
-        body["shots"] = claude_p(SHOTS_PROMPT.format(numbered_lines=numbered),
-                                 model).get("shots", [])
+        subject = (body.get("product") or {}).get("category") or topic["title"]
+        body["shots"] = claude_p(SHOTS_PROMPT.format(
+            numbered_lines=numbered, subject=subject), model).get("shots", [])
     except Exception:
         body["shots"] = []
 

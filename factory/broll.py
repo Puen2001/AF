@@ -128,6 +128,32 @@ def _wikimedia(query: str) -> list[dict]:
         return []
 
 
+def _wikimedia_image(query: str) -> list[dict]:
+    """Keyless still images from Commons (product photos etc.). Rendered with Ken
+    Burns motion. Abundant + lighter than video, so a good product-shot source."""
+    api = "https://commons.wikimedia.org/w/api.php"
+    try:
+        r = _get(api, params={
+            "action": "query", "format": "json", "generator": "search",
+            "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": 10,
+            "prop": "imageinfo", "iiprop": "url|size|mediatype"}, timeout=20)
+        r.raise_for_status()
+        out = []
+        for p in r.json().get("query", {}).get("pages", {}).values():
+            ii = (p.get("imageinfo") or [{}])[0]
+            title = p.get("title", "").lower()
+            if ii.get("mediatype") != "BITMAP" or ii.get("width", 0) < 800:
+                continue
+            if any(w in title for w in ("crash", "wreck", "accident", "death")):
+                continue
+            out.append({"url": ii["url"], "width": ii.get("width", 0),
+                        "height": ii.get("height", 0), "duration": None,
+                        "kind": "image", "source": "wikimedia-img"})
+        return out
+    except Exception:
+        return []
+
+
 def _broaden(query: str):
     """Yield the query, then progressively broader versions (drop trailing words)."""
     words = (query or "").split()
@@ -138,11 +164,15 @@ def _broaden(query: str):
         yield words[0]
 
 
-def _best_for(query: str) -> dict | None:
+def _best_for(query: str, want_product: bool = False) -> dict | None:
+    """Find the best clip/still for a query. For product shots, still images are
+    a strong fallback (product photos are abundant), so include them."""
     for q in _broaden(query):
         if not q:
             continue
         cands = _pexels(q) + _pixabay(q) + _wikimedia(q)
+        if want_product or not cands:
+            cands += _wikimedia_image(q)   # product stills, Ken-Burns'd in render
         cands = [c for c in cands if c["height"] >= MIN_H
                  and (c.get("duration") is None or c["duration"] >= DUR_MIN)]
         if cands:
@@ -187,7 +217,8 @@ def resolve(shots: list[dict], cfg: dict | None = None,
         if i < len(media_pool):
             chosen = _download(media_pool[i])
         if not chosen:
-            best = _best_for((s.get("query") or "").strip())
+            best = _best_for((s.get("query") or "").strip(),
+                             want_product=s.get("type") == "product")
             if best:
                 chosen = _download(best["url"])
                 if chosen:
