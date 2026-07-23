@@ -192,6 +192,50 @@ def _broaden(query: str):
         yield words[0]
 
 
+def _ranked(query: str, want_product: bool = False, limit: int = 6) -> list[dict]:
+    """Top-N candidates for a query (for the human-curation shortlist)."""
+    for q in _broaden(query):
+        if not q:
+            continue
+        cands = (_pexels(q) + _pixabay(q) + _wikimedia(q)
+                 + _archive_org(q) + _wikimedia_image(q))
+        cands = [c for c in cands if c["height"] >= MIN_H
+                 and (c.get("duration") is None or c["duration"] >= DUR_MIN)]
+        if cands:
+            return sorted(cands, key=_score, reverse=True)[:limit]
+    return []
+
+
+def shortlist(shots: list[dict], cfg: dict | None = None, n: int = 4,
+              product_media: list[str] | None = None) -> list[dict]:
+    """For each shot, download the top-N candidate clips/stills so a human can
+    pick the best. Product shots get their listing media + composited stills too."""
+    media = list(product_media or [])
+    out = []
+    for i, s in enumerate(shots or []):
+        is_product = s.get("type") == "product"
+        files = []
+        if i < len(media):
+            f = _download(media[i])
+            if f:
+                files.append(f)
+        for c in _ranked((s.get("query") or "").strip(), is_product, n):
+            f = _download(c["url"])
+            if not f:
+                continue
+            if is_product and str(f).lower().rsplit(".", 1)[-1] in (
+                    "jpg", "jpeg", "png", "webp"):
+                from . import product_shot
+                comp = product_shot.make(f, idx=i)
+                f = comp or f
+            files.append(f)
+            if len(files) >= n:
+                break
+        out.append({"query": s.get("query"), "type": s.get("type"),
+                    "from": s.get("from"), "to": s.get("to"), "candidates": files})
+    return out
+
+
 def _best_for(query: str, want_product: bool = False) -> dict | None:
     """Find the best clip/still for a query. Keyless image catalogs are far richer
     than keyless video, so a MATCHING still (Ken-Burns'd) beats a mismatched clip —

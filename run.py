@@ -13,8 +13,8 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory import (approve, broll, db, director, discover, publish,  # noqa: E402
-                     render, scriptgen, trends, voice)
+from factory import (approve, broll, curate, db, director, discover,  # noqa: E402
+                     publish, render, scriptgen, trends, voice)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -36,8 +36,9 @@ def load_secrets():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("command", choices=["daily", "dry-run", "weekly", "status",
-                                        "poll", "yt-auth"])
+                                        "poll", "yt-auth", "curate"])
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--id", type=int, default=None, help="script id for curate")
     args = ap.parse_args()
 
     cfg = load_cfg()
@@ -61,6 +62,33 @@ def main():
         handled = approve.poll(conn, cfg)
         posted = publish.process(conn, cfg)
         print(f"[poll] approvals handled: {handled}, published: {posted}")
+        return
+
+    if args.command == "curate":  # human-in-the-loop footage picking (interactive)
+        row = (conn.execute("SELECT * FROM scripts WHERE id=?", (args.id,)).fetchone()
+               if args.id else conn.execute(
+               "SELECT s.* FROM scripts s LEFT JOIN videos v ON v.script_id=s.id "
+               "WHERE s.status='checked' AND v.id IS NULL ORDER BY s.id DESC LIMIT 1"
+               ).fetchone())
+        if not row:
+            print("no script to curate")
+            return
+        body = json.loads(row["body"])
+        vdir = ROOT / cfg["paths"]["queue"] / f"s{row['id']}"
+        prod = body.get("product") or {}
+        print("[curate] shortlisting candidates...")
+        sl = broll.shortlist(body.get("shots", []), cfg, product_media=prod.get("media"))
+        picks = curate.curate(sl)
+        shots = [{**sh, "file": f} for sh, f in zip(sl, picks)]
+        meta = voice.synth(body["hook"], body["lines"], cfg["voice"]["primary"],
+                           vdir, rate=cfg["voice"].get("rate", "+0%"), cfg=cfg["voice"])
+        mp4 = render.render(meta, vdir, body=body, shots=shots)
+        conn.execute("INSERT INTO videos (script_id, template, file, status, created_at) "
+                     "VALUES (?,?,?,?,?)", (row["id"], "curated", str(mp4),
+                                            "rendered", db.now()))
+        conn.commit()
+        print(f"[curate] rendered {mp4}")
+        approve.send_pending(conn, cfg)
         return
 
     limit = args.limit or (1 if args.command == "dry-run" else cfg["daily_quota"])
