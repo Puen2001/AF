@@ -1,0 +1,84 @@
+# Seed products — v1 discovery source until the Shopee affiliate feed is wired.
+# url/affiliate_link: fill from Shopee affiliate portal after signup (leave "" to generate
+# script drafts without a link; publish stage refuses to post link-less videos).
+# facts: ONLY claims you can stand behind — the fact-check pass rejects anything beyond these.
+
+- name: "ปลั๊กชาร์จ GaN 65W"
+  category: charger
+  price_thb: 590
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "GaN (แกลเลียมไนไตรด์) ทำให้หัวชาร์จเล็กกว่าหัวชาร์จซิลิคอนวัตต์เท่ากันมาก"
+    - "65W ชาร์จโน้ตบุ๊กบางรุ่น แท็บเล็ต และมือถือได้จากหัวเดียว"
+    - "หลายรุ่นมี 2-3 พอร์ต แบ่งวัตต์อัตโนมัติ"
+
+- name: "สมาร์ทปลั๊ก Wi-Fi"
+  category: smart-home
+  price_thb: 250
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "สั่งเปิด-ปิดเครื่องใช้ไฟฟ้าผ่านมือถือได้จากทุกที่"
+    - "ตั้งเวลาเปิด-ปิดอัตโนมัติได้ เช่น ปิดพัดลมตอนตีสอง"
+    - "รุ่นที่วัดไฟได้ ช่วยดูว่าเครื่องไหนกินไฟเท่าไร"
+
+- name: "SSD พกพา USB-C"
+  category: storage
+  price_thb: 1590
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "เร็วกว่า external HDD แบบจานหมุนหลายเท่า และทนกระแทกกว่าเพราะไม่มีชิ้นส่วนหมุน"
+    - "ขนาดเล็กกว่าบัตรเครดิตในหลายรุ่น"
+    - "ต่อกับมือถือ USB-C เพื่อย้ายวิดีโอออกจากเครื่องได้"
+
+- name: "แท่นวางโน้ตบุ๊กพับได้"
+  category: desk-setup
+  price_thb: 390
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "ยกจอขึ้นใกล้ระดับสายตา ช่วยลดการก้มคอ"
+    - "ช่องว่างใต้เครื่องช่วยระบายความร้อน"
+    - "พับแบนใส่กระเป๋าโน้ตบุ๊กได้"
+
+- name: "เครื่องพิมพ์ฉลากพกพา Bluetooth"
+  category: productivity
+  price_thb: 490
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "พิมพ์ฉลากจากมือถือผ่าน Bluetooth ได้ทันที"
+    - "ใช้กระดาษความร้อน ไม่ต้องเติมหมึก"
+    - "ใช้จัดระเบียบกล่องเก็บของ สายชาร์จ และของในครัว"
+
+- name: "ไฟ LED ติดโต๊ะแบบ Screen Bar"
+  category: desk-setup
+  price_thb: 690
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "ติดบนขอบจอ ให้แสงลงโต๊ะโดยไม่สะท้อนเข้าจอ"
+    - "ประหยัดพื้นที่โต๊ะเพราะไม่ต้องมีฐานโคม"
+    - "หลายรุ่นปรับอุณหภูมิแสงได้ทั้งโทนอุ่นและโทนเย็น"
+
+- name: "หูฟัง Open-Ear แบบคล้องหู"
+  category: audio
+  price_thb: 890
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "ไม่อุดรูหู ได้ยินเสียงรอบตัวขณะฟังเพลง เหมาะกับใส่ขี่มอเตอร์ไซค์น้อยกว่าแบบอุดหู"
+    - "เหมาะกับคนใส่หูฟัง in-ear แล้วเจ็บหู"
+    - "น้ำหนักเบา ใส่วิ่งหรือทำงานทั้งวันได้"
+
+- name: "กล้องติดหน้ารถ (Dash Cam)"
+  category: travel-tech
+  price_thb: 990
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "บันทึกวนอัตโนมัติ เต็มแล้วทับไฟล์เก่าเอง"
+    - "มีเซนเซอร์กระแทก ล็อกไฟล์ตอนเกิดเหตุไม่ให้ถูกทับ"
+    - "ใช้เป็นหลักฐานเวลาเกิดอุบัติเหตุหรือเรื่องบนถนนได้"

@@ -1,0 +1,44 @@
+market: th
+language: th
+
+# claude -p model for script generation + fact-check (sonnet: cheap on session limits, plenty for this)
+model: sonnet
+
+daily_quota: 1            # videos to fully produce per daily run
+script_seconds: [20, 40]  # target spoken length
+script_words: [55, 100]   # Thai word-count proxy for the length above
+
+hooks:
+  - id: did-you-know
+    th: "รู้มั้ยว่า..."
+  - id: nobody-tells
+    th: "ไม่มีใครบอกคุณว่า..."
+  - id: hidden-feature
+    th: "ฟีเจอร์ลับที่คนใช้ยังไม่รู้"
+  - id: under-1000
+    th: "ของดีต่ำกว่าพันที่ควรมีติดบ้าน"
+  - id: before-buying
+    th: "ก่อนซื้อ... ดูคลิปนี้ก่อน"
+  - id: why-everyone
+    th: "ทำไมใครๆ ก็ซื้อของชิ้นนี้"
+  - id: stop-buying
+    th: "หยุดซื้อแบบเดิม ถ้ายังไม่รู้สิ่งนี้"
+
+disclosure: "มีลิงก์ Affiliate ในแคปชัน ผู้ทำคลิปอาจได้รับค่าคอมมิชชั่น #ad"
+soft_cta: "ลิงก์อยู่ในแคปชันเลย"
+
+voice:
+  primary: th-TH-PremwadeeNeural
+  alt: th-TH-NiwatNeural
+
+paths:
+  db: factory.db
+  queue: queue
+  assets: assets
+
+# phase 2 — rotating render templates (weights adjusted by report.py later)
+templates:
+  weights:
+    clean-card: 1
+    broll-heavy: 1
+    typo-kinetic: 1
