@@ -22,4 +22,6 @@ Production runs on gotham (Fedora) — see `docs/deploy-gotham.md`.
 
 ## Status
 
-Phase 1 (discover + scriptgen) built. Voice/render = phase 2; approval/publish = phase 3.
+Phases 1–2 built (discover + scriptgen + voice + render). Approval/publish = phase 3;
+analytics loop = phase 4. Requires `edge-tts pythainlp pyyaml requests` + ffmpeg with
+libx264/libass; Thai captions use the bundled `assets/fonts/` Noto Sans Thai.
