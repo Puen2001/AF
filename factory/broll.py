@@ -208,20 +208,28 @@ def resolve(shots: list[dict], cfg: dict | None = None,
     product_media (direct clip URLs from the product listing) is tried first."""
     media_pool = list(product_media or [])
     out = []
+    is_img = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in (
+        "jpg", "jpeg", "png", "webp")
     for i, s in enumerate(shots or []):
         if s.get("file"):
             out.append(s)
             continue
-        chosen = None
-        # product's own footage first — most relevant + license-clean
+        chosen, is_product = None, s.get("type") == "product"
+        # product's own listing photo first — most relevant + license-clean
         if i < len(media_pool):
             chosen = _download(media_pool[i])
         if not chosen:
-            best = _best_for((s.get("query") or "").strip(),
-                             want_product=s.get("type") == "product")
+            best = _best_for((s.get("query") or "").strip(), want_product=is_product)
             if best:
                 chosen = _download(best["url"])
                 if chosen:
                     s = {**s, "source": best["source"], "res": best["height"]}
+        # transform a raw product still into a clean branded shot (safer + nicer)
+        if chosen and is_product and is_img(chosen):
+            from . import product_shot
+            shot = product_shot.make(chosen, idx=i)
+            if shot:
+                chosen = shot
+                s = {**s, "composited": True}
         out.append({**s, "file": chosen})
     return out
