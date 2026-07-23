@@ -14,7 +14,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory import (approve, broll, db, director, discover, publish,  # noqa: E402
-                     render, scriptgen, voice)
+                     render, scriptgen, trends, voice)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -65,25 +65,36 @@ def main():
 
     limit = args.limit or (1 if args.command == "dry-run" else cfg["daily_quota"])
 
-    d = discover.run(conn)
-    d["triaged"] = discover.triage(conn, cfg)
-    print(f"[discover] {d}")
-
-    picks = director.plan(conn, cfg, limit)
-    if picks:
-        print(f"[director] {json.dumps(picks, ensure_ascii=False)}")
-        for pick in picks:
-            product = conn.execute("SELECT * FROM products WHERE id=?",
-                                   (pick["product_id"],)).fetchone()
+    if cfg.get("mode") == "story-first":
+        # trend → topic → story (product attached only when it fits)
+        print(f"[trends] {trends.discover(conn, cfg)}")
+        topics = db.rows(conn, "topics", "discovered", limit,
+                         order="audience_fit DESC, id")
+        for t in topics:
             try:
-                r = scriptgen.generate_one(conn, product, cfg,
-                                           suggested_angle=pick.get("angle"))
+                r = scriptgen.generate_from_topic(conn, t, cfg)
             except Exception as e:
-                r = {"product": product["name"], "status": "error", "error": str(e)}
-            print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
+                r = {"topic": t["title"], "status": "error", "error": str(e)}
+            print(f"[story] {json.dumps(r, ensure_ascii=False)}")
     else:
-        for r in scriptgen.run(conn, cfg, limit=limit):
-            print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
+        d = discover.run(conn)
+        d["triaged"] = discover.triage(conn, cfg)
+        print(f"[discover] {d}")
+        picks = director.plan(conn, cfg, limit)
+        if picks:
+            print(f"[director] {json.dumps(picks, ensure_ascii=False)}")
+            for pick in picks:
+                product = conn.execute("SELECT * FROM products WHERE id=?",
+                                       (pick["product_id"],)).fetchone()
+                try:
+                    r = scriptgen.generate_one(conn, product, cfg,
+                                               suggested_angle=pick.get("angle"))
+                except Exception as e:
+                    r = {"product": product["name"], "status": "error", "error": str(e)}
+                print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
+        else:
+            for r in scriptgen.run(conn, cfg, limit=limit):
+                print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
 
     # produce: checked scripts that have no video yet → voice + render
     pending = conn.execute(

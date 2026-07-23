@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS products (
 );
 CREATE TABLE IF NOT EXISTS scripts (
     id INTEGER PRIMARY KEY,
-    product_id INTEGER NOT NULL REFERENCES products(id),
+    product_id INTEGER REFERENCES products(id),   -- NULL for story-first topics
+    topic_id INTEGER REFERENCES topics(id),
     hook_id TEXT,
     body TEXT NOT NULL,              -- JSON: {hook, lines[], caption, hashtags[], cta}
     factcheck TEXT,                  -- JSON: {verdict, issues[]}
@@ -54,6 +55,19 @@ CREATE TABLE IF NOT EXISTS kv (
     k TEXT PRIMARY KEY,
     v TEXT
 );
+CREATE TABLE IF NOT EXISTS topics (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,            -- trend source that surfaced it
+    source_key TEXT NOT NULL UNIQUE, -- dedupe key
+    title TEXT NOT NULL,             -- the story/topic in one line
+    angle TEXT,                      -- curiosity angle / hook direction
+    trend TEXT,                      -- the TH trend it rides
+    audience_fit REAL,               -- 1-10 fit to the channel audience
+    product_hint TEXT,               -- category of product that MIGHT fit, or ''
+    research TEXT,                   -- cached web research brief (JSON)
+    status TEXT NOT NULL DEFAULT 'discovered',  -- discovered|scripted|skipped
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -72,6 +86,22 @@ def connect(db_path: str | None = None) -> sqlite3.Connection:
     vcols = {r[1] for r in conn.execute("PRAGMA table_info(videos)")}
     if "tg_msg_id" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN tg_msg_id INTEGER")
+    # migrate legacy scripts table: product_id was NOT NULL, and no topic_id
+    sinfo = {r[1]: r for r in conn.execute("PRAGMA table_info(scripts)")}
+    if "topic_id" not in sinfo:
+        conn.execute("ALTER TABLE scripts ADD COLUMN topic_id INTEGER")
+    if sinfo and sinfo["product_id"][3] == 1:  # notnull flag set → rebuild
+        conn.executescript("""
+            CREATE TABLE scripts_new (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER REFERENCES products(id),
+                topic_id INTEGER REFERENCES topics(id),
+                hook_id TEXT, body TEXT NOT NULL, factcheck TEXT,
+                status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL);
+            INSERT INTO scripts_new (id, product_id, hook_id, body, factcheck, status, created_at)
+                SELECT id, product_id, hook_id, body, factcheck, status, created_at FROM scripts;
+            DROP TABLE scripts; ALTER TABLE scripts_new RENAME TO scripts;""")
+        conn.commit()
     return conn
 
 
@@ -99,7 +129,7 @@ def upsert_product(conn, *, source, source_key, name, category=None, price_thb=N
     return cur.rowcount > 0
 
 
-_TABLES = {"products", "scripts", "videos", "posts"}
+_TABLES = {"products", "scripts", "videos", "posts", "topics"}
 
 
 def rows(conn, table: str, status: str, limit: int | None = None,

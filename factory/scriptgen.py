@@ -113,18 +113,57 @@ SHOTS_PROMPT = """คุณคือ editor วางแผนภาพ (shot li
 ตอบเป็น JSON เท่านั้น:
 {{"shots": [{{"from": 0, "to": 1, "query": "...", "type": "closeup|in-use|context"}}]}}"""
 
+TOPIC_WRITE_PROMPT = """คุณคือครีเอเตอร์วิดีโอสั้นสายสาระ-ความรู้ไทย ที่คนดูค้างจนจบเป็นประจำ
+เขียนสคริปต์ 1 เวอร์ชัน เล่า "เรื่อง" นี้ ด้วยมุมเล่า (angle): {angle_desc}
+
+เรื่องที่จะเล่า: {title}
+มุมหลัก: {angle}
+ข้อเท็จจริงที่ใช้ได้ (ห้ามอ้างเกินนี้ นอกจากความรู้ทั่วไปที่ถูกต้อง):
+{facts}
+{research_block}
+กติกาการเล่าเรื่อง (retention rules — บังคับ):
+- ฮุคต้องสร้าง "ช่องว่างความอยากรู้" เฉพาะเจาะจง คนดูต้องรู้สึกว่าเลื่อนผ่านแล้วพลาด
+- ข้อเท็จจริงที่น่าสนใจที่สุดมาภายใน 2 ประโยคแรกหลังฮุค ห้ามเกริ่น
+- มีจุดหักมุม/เซอร์ไพรส์ 1 จุด กลางเรื่อง
+- เปรียบเทียบเห็นภาพด้วยของใกล้ตัว อย่างน้อย 1 ครั้ง
+- จบด้วย payoff ที่ตอบฮุค — นี่คือ "เรื่องเล่า" ไม่ใช่โฆษณา ห้ามขายของในตัวสคริปต์นี้
+  (การแนบสินค้าเป็นขั้นตอนแยกทีหลัง ถ้าเรื่องนี้เหมาะ)
+- ถ้าเรื่องเกาะกระแสคนดัง/บุคคลสาธารณะ: "พูดถึง" ได้ แต่ห้ามกุว่าเขาเอนดอร์สหรือใช้สินค้า
+  ห้ามอ้างคำพูด/การกระทำที่ไม่เป็นความจริง เชื่อมได้แค่ข้อเท็จจริงสาธารณะที่ตรวจสอบได้
+- ความยาวพูดรวม {wmin}-{wmax} คำ (20-40 วินาที)
+
+ภาษา: ไทยพูดจริง ประโยคสั้น จังหวะเล่าให้เพื่อนฟัง ไม่มีภาษาเขียน ไม่ใส่ครับ/ค่ะ
+
+ตอบเป็น JSON เท่านั้น:
+{{"hook": "...", "lines": ["ประโยคที่ 1", "..."],
+  "caption": "แคปชันสั้นชวนคุย", "hashtags": ["#...", "#...", "#..."]}}"""
+
+PRODUCT_MATCH_PROMPT = """เรื่องเล่านี้จบแล้ว ตัดสินใจว่าควร "แนบสินค้า affiliate แบบเนียนๆ" ตอนท้ายหรือไม่
+เกณฑ์: แนบเฉพาะเมื่อมีสินค้าที่ "โผล่ในเรื่องอยู่แล้ว" หรือเกี่ยวโดยตรงจนคนดูอยากได้เอง
+ถ้าต้องยัด/ฝืน = ห้ามแนบ (ปล่อยเป็นคลิปความรู้ล้วน สร้างฐานคนดู)
+
+เรื่อง: {script}
+หมวดสินค้าที่พอจะเกี่ยว (ถ้ามี): {hint}
+
+ตอบเป็น JSON เท่านั้น:
+{{"attach": true/false, "category": "หมวดสินค้า", "search": "คำค้นหาสินค้าบน Shopee",
+  "soft_line": "ประโยคปิดเนียนๆ ที่โยงสินค้าเข้ากับเรื่อง (ถ้า attach=false ให้เป็นประโยคชวน follow/คอมเมนต์แทน ไม่มีลิงก์)"}}"""
+
 MARKETING_PROMPT = """คุณคือนักการตลาดคอนเทนต์วิดีโอสั้นตลาดไทย จัดแพ็กเกจการโพสต์สำหรับสคริปต์นี้
 สินค้า: {name} · สคริปต์: {script}
 
 ต้องการ:
-- youtube: title ≤ 60 ตัวอักษร (มี keyword ที่คนค้นจริง + ชวนสงสัย ไม่ clickbait เกินเนื้อหา),
+- youtube: title ≤ 60 ตัวอักษร — **เขียนเป็นประโยคบอกเล่า/หักล้างความเชื่อแบบฟันธง**
+  (เช่น "เม่นไม่ได้สลัดขนใส่ศัตรู") ห้ามเป็นประโยคคำถาม ห้ามขึ้นต้นด้วย "ทำไม"
+  ห้ามใช้คำขั้นสุด ("ที่สุดในโลก/อันดับ1") นำหน้า — ข้อมูลพิสูจน์แล้วว่า title แบบบอกเล่า
+  ทำผลงานดีกว่าคำถาม/คำขั้นสุดมาก. ใส่ keyword ที่คนค้นจริงอย่างเนียน
   description 2-3 บรรทัด (keyword ธรรมชาติ + บรรทัดเปิดเผยผลประโยชน์: "{disclosure}")
-- tiktok: caption สั้นชวนคุย จบด้วยคำถามชวนคอมเมนต์ + บรรทัดเปิดเผยผลประโยชน์,
-  hashtags 5-6 ตัว ผสม: แมสไทย 1-2 (#รู้หรือไม่ ฯลฯ) + niche หมวดสินค้า 2-3 + กว้าง 1
+- tiktok: caption สั้นชวนคุย จบด้วยคำถามชวนคอมเมนต์ + บรรทัดเปิดเผยผลประโยชน์
+- extra_tags: แฮชแท็ก "เฉพาะคลิปนี้" 3 ตัว (เกาะหัวข้อ/หมวดสินค้า) — แท็กแบรนด์ตายตัวระบบเติมให้เอง
 
 ตอบเป็น JSON เท่านั้น:
 {{"youtube": {{"title": "...", "description": "..."}},
-  "tiktok": {{"caption": "...", "hashtags": ["#...", "..."]}}}}"""
+  "tiktok": {{"caption": "...", "extra_tags": ["#...", "#...", "#..."]}}}}"""
 
 
 def _script_text(body: dict) -> str:
@@ -228,6 +267,104 @@ def generate_one(conn, product, cfg, suggested_angle: str | None = None) -> dict
             "revised": revised, "issues": verdict.get("issues", []),
             "sources": [f.get("source") for f in (brief or {}).get("facts", [])
                         if f.get("source")][:5]}
+
+
+def generate_from_topic(conn, topic, cfg, suggested_angle: str | None = None) -> dict:
+    """Story-first: research a topic → 3-draft/judge/opus-polish story → situational
+    product attach → fact-check → marketing → shots. Product is optional."""
+    sg = cfg.get("scriptgen", {})
+    n_drafts = sg.get("drafts", 3)
+    model = sg.get("model", cfg.get("model", "sonnet"))
+    polish_model = sg.get("polish_model", model)
+
+    brief = research.ensure_topic(conn, topic, cfg) or {}
+    facts_list = [f["text"] for f in brief.get("facts", []) if f.get("text")]
+    facts = "\n".join(f"- {f}" for f in facts_list) or f"- {topic['title']}"
+    research_block = ""
+    if brief:
+        research_block = (
+            "\nวัตถุดิบเรื่องเล่า:\nความเข้าใจผิด: "
+            + " / ".join(brief.get("misconceptions", [])[:3])
+            + "\nจุดหักมุม: " + str(brief.get("surprise", "")) + "\n")
+
+    wmin, wmax = cfg["script_words"]
+    common = dict(title=topic["title"], angle=topic["angle"] or "", facts=facts,
+                  research_block=research_block, wmin=wmin, wmax=wmax)
+
+    angles = random.sample(list(ANGLES), k=min(n_drafts, len(ANGLES)))
+    if suggested_angle in ANGLES and suggested_angle not in angles:
+        angles[0] = suggested_angle
+    drafts = [claude_p(TOPIC_WRITE_PROMPT.format(angle_desc=ANGLES[a], **common), model)
+              for a in angles]
+
+    listing = "\n\n".join(
+        f"ดราฟต์ {i} (angle: {a}):\n{json.dumps(d, ensure_ascii=False)}"
+        for i, (a, d) in enumerate(zip(angles, drafts)))
+    judge = claude_p(JUDGE_PROMPT.format(drafts=listing), model)
+    best = int(judge.get("best", 0)) % len(drafts)
+
+    body = claude_p(POLISH_PROMPT.format(
+        notes="\n".join(f"- {n}" for n in judge.get("notes", [])),
+        body=json.dumps(drafts[best], ensure_ascii=False),
+        wmin=wmin, wmax=wmax), polish_model)
+
+    # situational product attach — the story decides, never forced
+    attach = {"attach": False}
+    try:
+        attach = claude_p(PRODUCT_MATCH_PROMPT.format(
+            script=_script_text(body), hint=topic["product_hint"] or "-"), model)
+    except Exception:
+        pass
+    if attach.get("attach"):
+        body["lines"].append(attach.get("soft_line", cfg["soft_cta"]))
+        body["caption"] = (body.get("caption", "") + "\n" + cfg["disclosure"])
+        body["product"] = {"category": attach.get("category"),
+                           "search": attach.get("search")}
+    else:
+        if attach.get("soft_line"):
+            body["lines"].append(attach["soft_line"])
+        body["product"] = None
+
+    # fact-check against researched facts (title stands in for product name)
+    def check(b: dict) -> dict:
+        return claude_p(CHECK_PROMPT.format(
+            name=topic["title"], price=0, facts=facts,
+            script=_script_text(b)), model)
+
+    verdict = check(body)
+    if verdict.get("verdict") != "pass":
+        body = claude_p(REVISE_PROMPT.format(
+            issues="\n".join(f"- {i}" for i in verdict.get("issues", [])),
+            body=json.dumps(body, ensure_ascii=False)), model)
+        verdict = check(body)
+
+    try:
+        body["marketing"] = claude_p(MARKETING_PROMPT.format(
+            name=topic["title"], script=_script_text(body),
+            disclosure=cfg["disclosure"]), model)
+    except Exception:
+        pass
+    try:
+        numbered = "\n".join(
+            f"{i}. {t}" for i, t in enumerate([body["hook"], *body["lines"]]))
+        body["shots"] = claude_p(SHOTS_PROMPT.format(numbered_lines=numbered),
+                                 model).get("shots", [])
+    except Exception:
+        body["shots"] = []
+
+    body["meta"] = {"angle": angles[best], "topic_id": topic["id"],
+                    "has_product": bool(body["product"]), "judge": judge}
+    status = "checked" if verdict.get("verdict") == "pass" else "rejected"
+    conn.execute(
+        "INSERT INTO scripts (product_id, topic_id, hook_id, body, factcheck, status, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (None, topic["id"], angles[best], json.dumps(body, ensure_ascii=False),
+         json.dumps(verdict, ensure_ascii=False), status, db.now()))
+    db.set_status(conn, "topics", topic["id"], "scripted")
+    return {"topic": topic["title"], "angle": angles[best], "status": status,
+            "has_product": bool(body["product"]),
+            "product": body["product"], "sources": [f.get("source")
+            for f in brief.get("facts", []) if f.get("source")][:5]}
 
 
 def run(conn, cfg, limit: int = 1) -> list[dict]:

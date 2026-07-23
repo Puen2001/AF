@@ -3,6 +3,17 @@
 # script drafts without a link; publish stage refuses to post link-less videos).
 # facts: ONLY claims you can stand behind — the fact-check pass rejects anything beyond these.
 
+- name: "ไฟเส้น LED RGB ซิงค์เสียงเพลง"
+  category: smart-home
+  price_thb: 259
+  url: ""
+  affiliate_link: ""
+  facts:
+    - "เปลี่ยนสีได้หลายล้านสี ควบคุมด้วยรีโมทหรือแอปในมือถือ"
+    - "โหมดซิงค์เสียงใช้ไมค์ในตัว เปลี่ยนสีและความสว่างตามจังหวะเพลง"
+    - "ด้านหลังเป็นเทปกาว แปะหลังทีวี ใต้โต๊ะ หรือหัวเตียงได้ ตัดตามรอยที่กำหนดให้พอดีพื้นที่"
+    - "หลายรุ่นจ่ายไฟผ่าน USB เสียบกับทีวีหรืออะแดปเตอร์ได้เลย"
+
 - name: "ปลั๊กชาร์จ GaN 65W"
   category: charger
   price_thb: 590

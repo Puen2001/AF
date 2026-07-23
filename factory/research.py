@@ -29,6 +29,39 @@ RESEARCH_PROMPT = """คุณคือนักวิจัยคอนเท�
   "th_context": "..."}}"""
 
 
+TOPIC_PROMPT = """คุณคือนักวิจัยคอนเทนต์ ค้นเว็บเรื่องนี้เพื่อทำ brief สำหรับวิดีโอสั้นเล่าเรื่อง
+หัวข้อ: {title}
+มุมที่จะเล่า: {angle}
+
+ต้องการ:
+- facts: 5-8 ข้อเท็จจริงที่ตรวจสอบได้และ "น่าเล่า" — เน้นสิ่งที่คนส่วนใหญ่ไม่รู้ กลไก เบื้องหลัง
+  ตัวเลขที่จับต้องได้ การเปรียบเทียบเห็นภาพ (แต่ละข้อแนบ source URL)
+- misconceptions: ความเข้าใจผิดยอดฮิตเกี่ยวกับเรื่องนี้ 1-3 ข้อ
+- surprise: จุดหักมุม/เรื่องที่คนไม่คาดคิด 1 ข้อ (ไว้เป็นจุดพีคของคลิป)
+
+ห้ามเดา ไม่แน่ใจให้ตัดทิ้ง ตอบเป็น JSON เท่านั้น:
+{{"facts": [{{"text": "...", "source": "url"}}],
+  "misconceptions": ["..."], "surprise": "..."}}"""
+
+
+def ensure_topic(conn, topic, cfg) -> dict | None:
+    """Web research brief for a story topic, cached in topics.research."""
+    if topic["research"]:
+        return json.loads(topic["research"])
+    sg = cfg.get("scriptgen", {})
+    try:
+        brief = claude_p(
+            TOPIC_PROMPT.format(title=topic["title"], angle=topic["angle"] or ""),
+            sg.get("research_model", sg.get("model", cfg.get("model", "sonnet"))),
+            tools="WebSearch", timeout=420)
+    except Exception:
+        return None
+    conn.execute("UPDATE topics SET research=? WHERE id=?",
+                 (json.dumps(brief, ensure_ascii=False), topic["id"]))
+    conn.commit()
+    return brief
+
+
 def ensure(conn, product, cfg) -> dict | None:
     """Return the product's research brief, running it once and caching in DB."""
     if product["research"]:

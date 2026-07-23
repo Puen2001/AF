@@ -38,13 +38,25 @@ async def _synth(text: str, voice: str, rate: str, out: Path) -> list[dict]:
     return words
 
 
+def _synth_backend(text: str, voice: str, rate: str, out: Path,
+                   cfg: dict | None = None) -> list[dict]:
+    """Dispatch to the configured TTS provider. edge-tts returns word timings
+    directly; f5-clone (local voice clone) has no word events, so timings are
+    estimated proportionally downstream."""
+    provider = (cfg or {}).get("provider", "edge-tts")
+    if provider == "f5-clone":
+        from . import voice_f5
+        return voice_f5.synth_line(text, out, cfg)
+    return asyncio.run(_synth(text, voice, rate, out))
+
+
 def synth(hook: str, body_lines: list[str], voice: str, out_dir: Path,
-          rate: str = "+0%") -> dict:
+          rate: str = "+0%", cfg: dict | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     hook_mp3, body_mp3 = out_dir / "hook.mp3", out_dir / "body.mp3"
 
-    hook_words = asyncio.run(_synth(hook, voice, rate, hook_mp3))
-    body_words = asyncio.run(_synth(". ".join(body_lines), voice, rate, body_mp3))
+    hook_words = _synth_backend(hook, voice, rate, hook_mp3, cfg)
+    body_words = _synth_backend(". ".join(body_lines), voice, rate, body_mp3, cfg)
 
     hook_dur = _duration(hook_mp3)
     offset = hook_dur + GAP

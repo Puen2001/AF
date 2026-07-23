@@ -1,6 +1,54 @@
 market: th
 language: th
 
+# story-first (v2): start from a Thailand trend + audience, tell a story, attach a
+# product only when it genuinely fits. See docs for the flow.
+mode: story-first        # story-first | product-first (legacy seed path)
+
+brand:
+  name: ""               # channel name (fill once chosen) — used in branding overlay
+  voice: "เล่าเรื่องน่าสงสัยแบบเพื่อนคุยกัน อยากรู้ตาม ไม่ขายของ"
+  identity: "ช่องสาระ-ความรู้รอบตัวแนวชวนสงสัย ครอบคลุมทุกเรื่องที่น่าทึ่ง ไม่จำกัดหมวด"
+  # fixed hashtag block reused verbatim every video (TOGE pattern) + 3 dynamic per clip
+  hashtags: ["#สาระน่ารู้", "#ความรู้รอบตัว", "#สาระสั้นๆ", "#รู้หรือไม่",
+             "#คลิปความรู้", "#funfacts", "#เรื่องรอบรู้"]
+  mascot: assets/brand/mascot.png   # bottom-center overlay on every render (when present)
+  logo: assets/brand/logo.png       # top-left watermark (when present)
+
+audience:
+  # who the channel is for — biases topic selection toward what they'd stop-scroll for
+  age: "18-34"
+  who: "คนไทยเจนวาย-เจนแซด สาย gadget/ไลฟ์แฮ็ก/สาระบันเทิง ชอบเรื่องน่าทึ่งรอบตัว"
+  interests: [tech, gadgets, life-hacks, science-curiosity, money-saving, everyday-objects]
+
+trends:
+  sources: [google-trends-th, tiktok-th, social-buzz]  # what the LLM should scan
+  topics_per_run: 5     # candidate story topics generated per discovery run
+
+# Thai seasonal calendar — anticipatory content. window = MM-DD..MM-DD run window
+# (post BEFORE the event to catch the search wave). hints = product categories that fit.
+seasonal:
+  - event: "สงกรานต์ (เทศกาลน้ำ)"
+    window: "03-20..04-14"
+    hints: "ซองกันน้ำมือถือ, เคสกันน้ำ, ลำโพงกันน้ำ, powerbank กันน้ำ, กระเป๋ากันน้ำ, กล้องกันน้ำ"
+  - event: "หน้าฝน"
+    window: "05-15..08-31"
+    hints: "ร่มพับ, เสื้อกันฝน, เครื่องลดความชื้น, กันชื้นในตู้, ที่คลุมกระเป๋ากันฝน"
+  - event: "หน้าร้อน (อากาศร้อนจัด)"
+    window: "03-01..05-10"
+    hints: "พัดลมพกพา, พัดลมมือถือ, เครื่องพ่นไอเย็น, ปลั๊กวัดไฟ/ประหยัดไฟแอร์"
+  - event: "เปิดเทอม"
+    window: "04-25..05-16"
+    hints: "อุปกรณ์โต๊ะเรียน, โคมไฟถนอมสายตา, powerbank, หูฟัง, จัดระเบียบสายชาร์จ"
+  - event: "ตรุษจีน"
+    window: "01-15..02-05"
+    hints: "ของขวัญแกดเจ็ต, ไฟตกแต่ง, ของมงคลอิเล็กทรอนิกส์"
+  - event: "สิ้นปี/ปีใหม่ (ของขวัญ)"
+    window: "11-20..12-31"
+    hints: "แกดเจ็ตของขวัญ, ของแต่งห้อง, อุปกรณ์ปาร์ตี้/ไฟ"
+
+product_policy: situational   # attach an affiliate product only when the story fits one
+
 # claude -p models (headless calls bill the metered automation credit, not session limits)
 model: sonnet
 scriptgen:
@@ -32,9 +80,14 @@ disclosure: "มีลิงก์ Affiliate ในแคปชัน ผู้�
 soft_cta: "ลิงก์อยู่ในแคปชันเลย"
 
 voice:
+  provider: edge-tts  # edge-tts (cloud, free) | f5-clone (local voice-clone on gotham)
   primary: th-TH-PremwadeeNeural
   alt: th-TH-NiwatNeural
   rate: "-10%"        # calmer pace — natural Thai delivery, not rushed
+  # f5-clone: point ref_audio at a clean ~30s Thai voice sample (Puen's voice) +
+  # ref_text = its transcript; F5-TTS-THAI (GPU on gotham) clones it zero-shot.
+  ref_audio: assets/voice/ref.wav
+  ref_text: ""
 
 publish:
   privacy: unlisted    # launch-warming; switch to public when confident
