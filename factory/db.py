@@ -99,8 +99,12 @@ def upsert_product(conn, *, source, source_key, name, category=None, price_thb=N
     return cur.rowcount > 0
 
 
+_TABLES = {"products", "scripts", "videos", "posts"}
+
+
 def rows(conn, table: str, status: str, limit: int | None = None,
          order: str = "id"):
+    assert table in _TABLES, table
     q = f"SELECT * FROM {table} WHERE status=? ORDER BY {order}"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -108,6 +112,7 @@ def rows(conn, table: str, status: str, limit: int | None = None,
 
 
 def set_status(conn, table: str, row_id: int, status: str):
+    assert table in _TABLES, table
     conn.execute(f"UPDATE {table} SET status=? WHERE id=?", (status, row_id))
     conn.commit()
 

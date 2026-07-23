@@ -222,8 +222,12 @@ def generate_one(conn, product, cfg, suggested_angle: str | None = None) -> dict
          json.dumps(verdict, ensure_ascii=False), status, db.now()),
     )
     db.set_status(conn, "products", product["id"], "scripted")
+    # research sources surface in the daily log so the operator can spot-check
+    # the fact-checker's ground truth (it shares the research brief's trust)
     return {"product": product["name"], "angle": angles[best], "status": status,
-            "revised": revised, "issues": verdict.get("issues", [])}
+            "revised": revised, "issues": verdict.get("issues", []),
+            "sources": [f.get("source") for f in (brief or {}).get("facts", [])
+                        if f.get("source")][:5]}
 
 
 def run(conn, cfg, limit: int = 1) -> list[dict]:

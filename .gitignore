@@ -1,6 +1,8 @@
-config/secrets.env
-config/yt_token.json
-config/*client_secret*.json
+# config/ is deny-by-default: anything new dropped there stays out of git
+config/*
+!config/config.yaml
+!config/secrets.env.example
+!config/seed_products.yaml
 factory.db
 queue/
 assets/cache/

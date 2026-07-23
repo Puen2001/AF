@@ -71,8 +71,20 @@ def poll(conn, cfg) -> int:
         cb = u.get("callback_query")
         if not cb or ":" not in (cb.get("data") or ""):
             continue
+        # getUpdates is bot-wide: only the owner chat may flip approval state
+        sender = cb.get("from", {}).get("id")
+        cb_chat = cb.get("message", {}).get("chat", {}).get("id")
+        if str(sender) != str(chat) or str(cb_chat) != str(chat):
+            _tg(token, "answerCallbackQuery", callback_query_id=cb["id"],
+                text="ไม่ได้รับอนุญาต")
+            continue
         action, vid = cb["data"].split(":", 1)
-        v = conn.execute("SELECT * FROM videos WHERE id=?", (int(vid),)).fetchone()
+        try:
+            vid = int(vid)
+        except ValueError:
+            _tg(token, "answerCallbackQuery", callback_query_id=cb["id"])
+            continue
+        v = conn.execute("SELECT * FROM videos WHERE id=?", (vid,)).fetchone()
         if not v or v["status"] != "pending_approval":
             _tg(token, "answerCallbackQuery", callback_query_id=cb["id"])
             continue

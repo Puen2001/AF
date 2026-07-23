@@ -73,8 +73,12 @@ def resolve(shots: list[dict]) -> list[dict]:
             if url:
                 with requests.get(url, stream=True, timeout=120) as r:
                     r.raise_for_status()
+                    written = 0
                     with open(path, "wb") as f:
                         for chunk in r.iter_content(1 << 16):
+                            written += len(chunk)
+                            if written > 200 * 1024 * 1024:
+                                raise ValueError("clip exceeds 200MB cap")
                             f.write(chunk)
         except Exception:
             path.unlink(missing_ok=True)

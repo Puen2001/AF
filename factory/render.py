@@ -79,8 +79,11 @@ def build_ass(words: list[dict], out: Path):
         chunk_end = chunk[-1]["end"] + 0.15
         if g + 1 < len(groups):
             chunk_end = min(chunk_end, groups[g + 1][0]["start"])
-        # ". " joins lines for TTS pausing — never show that punctuation
-        texts = [w["text"].strip(".,!?") for w in chunk]
+        # strip TTS join-punctuation; neutralize ASS override syntax ({, }, \)
+        # — word text descends from LLM+web content and libass would execute it
+        texts = [w["text"].strip(".,!?")
+                 .replace("{", "(").replace("}", ")").replace("\\", "")
+                 for w in chunk]
         # one event per word: whole chunk drawn, active word yellow + scaled;
         # the chunk's first event gets an entrance pop instead of per-word scale
         for i, w in enumerate(chunk):

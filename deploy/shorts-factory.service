@@ -8,3 +8,5 @@ Type=oneshot
 WorkingDirectory=%h/shorts-factory
 ExecStart=%h/shorts-factory/.venv/bin/python run.py daily
 TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
