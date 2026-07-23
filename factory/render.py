@@ -25,7 +25,13 @@ PALETTES = [
     ("0x0f1020", "0x2a1a3e"),
     ("0x101820", "0x1f3a35"),
     ("0x1a1206", "0x3a2a12"),
+    ("0x0d1b2a", "0x1b3a4b"),
+    ("0x1a0f1f", "0x3d1f47"),
+    ("0x141414", "0x2e2620"),
 ]
+
+SCENE_LEN = 6.0   # background scene length before a crossfade cut
+XFADE = 0.5
 
 ASS_HEADER = f"""[Script Info]
 ScriptType: v4.00+
@@ -66,38 +72,95 @@ def _chunks(words: list[dict]) -> list[list[dict]]:
 
 def build_ass(words: list[dict], out: Path):
     events = []
-    for chunk in _chunks(words):
+    groups = _chunks(words)
+    for g, chunk in enumerate(groups):
         style = "Hook" if chunk[0]["seg"] == "hook" else "Body"
+        # display padding must never overlap the next chunk (two captions at once)
         chunk_end = chunk[-1]["end"] + 0.15
-        # one event per word: whole chunk drawn, active word yellow + scaled
+        if g + 1 < len(groups):
+            chunk_end = min(chunk_end, groups[g + 1][0]["start"])
+        # ". " joins lines for TTS pausing — never show that punctuation
+        texts = [w["text"].strip(".,!?") for w in chunk]
+        # one event per word: whole chunk drawn, active word yellow + scaled;
+        # the chunk's first event gets an entrance pop instead of per-word scale
         for i, w in enumerate(chunk):
             start = w["start"] if i else chunk[0]["start"]
             end = chunk[i + 1]["start"] if i + 1 < len(chunk) else chunk_end
-            text = "".join(
-                (r"{\c" + HILITE + r"\fscx110\fscy110}" + x["text"]
-                 + r"{\c" + WHITE + r"\fscx100\fscy100}") if j == i else x["text"]
-                for j, x in enumerate(chunk))
+            if end <= start:
+                continue
+            if i == 0:
+                pop = r"{\fscx86\fscy86\t(0,120,\fscx100\fscy100)\fad(60,0)}"
+                text = pop + "".join(
+                    (r"{\c" + HILITE + r"}" + t + r"{\c" + WHITE + r"}")
+                    if j == 0 else t
+                    for j, t in enumerate(texts))
+            else:
+                text = "".join(
+                    (r"{\c" + HILITE + r"\fscx110\fscy110}" + t
+                     + r"{\c" + WHITE + r"\fscx100\fscy100}") if j == i else t
+                    for j, t in enumerate(texts))
             events.append(
                 f"Dialogue: 0,{_ts(start)},{_ts(end)},{style},{text}")
     out.write_text(ASS_HEADER + "\n".join(events) + "\n")
 
 
+def _background(dur: float) -> tuple[list[str], str, int]:
+    """N gradient scenes crossfaded — reads as edited cuts, not a static loop."""
+    n = max(1, int((dur - XFADE) // (SCENE_LEN - XFADE)) + 1)
+    inputs, pals = [], random.sample(PALETTES, k=min(n, len(PALETTES)))
+    for i in range(n):
+        c0, c1 = pals[i % len(pals)]
+        x0, y0 = random.randint(0, 540), random.randint(0, 960)
+        x1, y1 = random.randint(540, 1079), random.randint(960, 1919)
+        inputs += ["-f", "lavfi", "-i",
+                   f"gradients=s=1080x1920:c0={c0}:c1={c1}:x0={x0}:y0={y0}:"
+                   f"x1={x1}:y1={y1}:speed=0.04:r=30:d={SCENE_LEN + XFADE}"]
+    if n == 1:
+        return inputs, "[0:v]null[bg];", 1
+    fc, prev = "", "[0:v]"
+    for i in range(1, n):
+        out = "[bg]" if i == n - 1 else f"[x{i}]"
+        offset = SCENE_LEN + (i - 1) * (SCENE_LEN - XFADE)
+        fc += (f"{prev}[{i}:v]xfade=transition=fade:duration={XFADE}:"
+               f"offset={offset:.2f}{out};")
+        prev = out
+    return inputs, fc, n
+
+
 def render(voice_meta: dict, out_dir: Path, template: str = "clean-card") -> Path:
     build_ass(voice_meta["words"], out_dir / "captions.ass")
-    c0, c1 = random.choice(PALETTES)
     dur = voice_meta["duration"] + 0.5
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error",
-         "-f", "lavfi",
-         "-i", f"gradients=s=1080x1920:c0={c0}:c1={c1}:speed=0.03:r=30:d={dur}",
-         "-i", "voice.mp3",
-         "-filter_complex",
-         f"[0:v]subtitles=captions.ass:fontsdir={FONTS_DIR}[v];"
-         "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11[a]",
-         "-map", "[v]", "-map", "[a]",
-         "-t", str(dur),
-         "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-pix_fmt", "yuv420p",
-         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-         "final.mp4"],
-        cwd=out_dir, check=True)
+    bg_inputs, bg_fc, n = _background(dur)
+
+    voice_idx = n
+    cmd = ["ffmpeg", "-y", "-v", "error", *bg_inputs, "-i", "voice.mp3"]
+
+    # optional music bed: drop any licensed track into assets/music/ to activate
+    music = sorted((ROOT / "assets" / "music").glob("*.[mw][pa][3v]")) \
+        if (ROOT / "assets" / "music").exists() else []
+    if music:
+        cmd += ["-stream_loop", "-1", "-i", str(random.choice(music))]
+        audio_fc = (
+            f"[{voice_idx + 1}:a]volume=0.30[m0];"
+            f"[m0][{voice_idx}:a]sidechaincompress="
+            f"threshold=0.03:ratio=12:attack=15:release=400[duck];"
+            f"[{voice_idx}:a][duck]amix=inputs=2:duration=first:normalize=0[mix];"
+            f"[mix]loudnorm=I=-14:TP=-1.5:LRA=11[a]")
+    else:
+        audio_fc = f"[{voice_idx}:a]loudnorm=I=-14:TP=-1.5:LRA=11[a]"
+
+    video_fc = (
+        f"{bg_fc}"
+        f"[bg]vignette=PI/5,"
+        f"drawbox=x=0:y=ih-12:w=iw*t/{dur:.2f}:h=12:color=white@0.45:t=fill,"
+        f"subtitles=captions.ass:fontsdir={FONTS_DIR}[v];")
+
+    cmd += ["-filter_complex", video_fc + audio_fc,
+            "-map", "[v]", "-map", "[a]",
+            "-t", str(dur),
+            "-c:v", "libx264", "-preset", "medium", "-crf", "21",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+            "final.mp4"]
+    subprocess.run(cmd, cwd=out_dir, check=True)
     return out_dir / "final.mp4"
