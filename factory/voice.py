@@ -1,7 +1,10 @@
-"""Stage 3 — TTS via edge-tts (free Microsoft neural voices).
+"""Stage 3 — TTS via edge-tts (free Microsoft neural voices), word-timed.
 
-Synthesizes each line separately so per-line durations become caption timings,
-then concatenates with a small pause after every line.
+Two synthesis calls: the hook alone (it's a standalone punch line) and the whole
+body as ONE call — continuous prosody instead of a per-line reset — joined with a
+short gap. WordBoundary events give per-word offsets for karaoke captions; keeping
+hook and body as separate calls means no fragile text alignment (Azure normalizes
+numbers etc., so token text can't be matched back to written lines reliably).
 """
 import asyncio
 import json
@@ -10,7 +13,7 @@ from pathlib import Path
 
 import edge_tts
 
-GAP = 0.3  # seconds of silence after each line
+GAP = 0.35  # silence between hook and body
 
 
 def _duration(path: Path) -> float:
@@ -21,35 +24,43 @@ def _duration(path: Path) -> float:
     return float(out.stdout.strip())
 
 
-async def _synth_line(text: str, voice: str, out: Path):
-    await edge_tts.Communicate(text, voice).save(str(out))
+async def _synth(text: str, voice: str, rate: str, out: Path) -> list[dict]:
+    comm = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
+    words = []
+    with open(out, "wb") as f:
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                f.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                words.append({"text": chunk["text"],
+                              "start": chunk["offset"] / 1e7,
+                              "end": (chunk["offset"] + chunk["duration"]) / 1e7})
+    return words
 
 
-def synth(lines: list[str], voice: str, out_dir: Path) -> dict:
+def synth(hook: str, body_lines: list[str], voice: str, out_dir: Path,
+          rate: str = "+0%") -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
-    parts = []
-    for i, text in enumerate(lines):
-        part = out_dir / f"part{i:02d}.mp3"
-        asyncio.run(_synth_line(text, voice, part))
-        parts.append(part)
+    hook_mp3, body_mp3 = out_dir / "hook.mp3", out_dir / "body.mp3"
 
-    timings, t = [], 0.0
-    for part, text in zip(parts, lines):
-        d = _duration(part)
-        timings.append({"text": text, "start": round(t, 2), "end": round(t + d, 2)})
-        t += d + GAP
+    hook_words = asyncio.run(_synth(hook, voice, rate, hook_mp3))
+    body_words = asyncio.run(_synth(". ".join(body_lines), voice, rate, body_mp3))
 
-    # decode-concat with a trailing pad per line (robust across codec params)
-    cmd = ["ffmpeg", "-y", "-v", "error"]
-    for part in parts:
-        cmd += ["-i", str(part)]
-    fc = "".join(f"[{i}:a]apad=pad_dur={GAP}[a{i}];" for i in range(len(parts)))
-    fc += "".join(f"[a{i}]" for i in range(len(parts)))
-    fc += f"concat=n={len(parts)}:v=0:a=1[out]"
+    hook_dur = _duration(hook_mp3)
+    offset = hook_dur + GAP
+    words = ([{**w, "seg": "hook"} for w in hook_words] +
+             [{"text": w["text"], "start": w["start"] + offset,
+               "end": w["end"] + offset, "seg": "body"} for w in body_words])
+
     audio = out_dir / "voice.mp3"
-    cmd += ["-filter_complex", fc, "-map", "[out]", str(audio)]
-    subprocess.run(cmd, check=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(hook_mp3), "-i", str(body_mp3),
+         "-filter_complex",
+         f"[0:a]apad=pad_dur={GAP}[h];[h][1:a]concat=n=2:v=0:a=1[out]",
+         "-map", "[out]", str(audio)],
+        check=True)
 
-    meta = {"audio": str(audio), "timings": timings, "duration": round(t, 2)}
+    meta = {"audio": str(audio), "words": words,
+            "duration": round(_duration(audio), 2)}
     (out_dir / "timings.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
     return meta

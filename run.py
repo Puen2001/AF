@@ -51,8 +51,9 @@ def main():
         body = json.loads(s["body"])
         vdir = ROOT / cfg["paths"]["queue"] / f"s{s['id']}"
         try:
-            meta = voice.synth([body["hook"], *body["lines"]],
-                               cfg["voice"]["primary"], vdir)
+            meta = voice.synth(body["hook"], body["lines"],
+                               cfg["voice"]["primary"], vdir,
+                               rate=cfg["voice"].get("rate", "+0%"))
             mp4 = render.render(meta, vdir)
             conn.execute(
                 "INSERT INTO videos (script_id, template, file, status, created_at) "
