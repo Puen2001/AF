@@ -104,33 +104,78 @@ def build_ass(words: list[dict], out: Path):
     out.write_text(ASS_HEADER + "\n".join(events) + "\n")
 
 
-def _background(dur: float) -> tuple[list[str], str, int]:
-    """N gradient scenes crossfaded — reads as edited cuts, not a static loop."""
-    n = max(1, int((dur - XFADE) // (SCENE_LEN - XFADE)) + 1)
-    inputs, pals = [], random.sample(PALETTES, k=min(n, len(PALETTES)))
-    for i in range(n):
-        c0, c1 = pals[i % len(pals)]
-        x0, y0 = random.randint(0, 540), random.randint(0, 960)
-        x1, y1 = random.randint(540, 1079), random.randint(960, 1919)
-        inputs += ["-f", "lavfi", "-i",
-                   f"gradients=s=1080x1920:c0={c0}:c1={c1}:x0={x0}:y0={y0}:"
-                   f"x1={x1}:y1={y1}:speed=0.04:r=30:d={SCENE_LEN + XFADE}"]
-    if n == 1:
-        return inputs, "[0:v]null[bg];", 1
-    fc, prev = "", "[0:v]"
-    for i in range(1, n):
-        out = "[bg]" if i == n - 1 else f"[x{i}]"
-        offset = SCENE_LEN + (i - 1) * (SCENE_LEN - XFADE)
-        fc += (f"{prev}[{i}:v]xfade=transition=fade:duration={XFADE}:"
-               f"offset={offset:.2f}{out};")
+def _segments_from_shots(shots: list[dict], body: dict, words: list[dict],
+                         dur: float) -> list[dict]:
+    """Map the shot plan (line ranges) to time segments via proportional
+    line lengths — b-roll cuts don't need frame-exact sync."""
+    hook_words = [w for w in words if w["seg"] == "hook"]
+    hook_end = (hook_words[-1]["end"] + 0.3) if hook_words else 0.0
+    lines = body.get("lines", [])
+    total = sum(len(l) for l in lines) or 1
+    bounds, acc = [hook_end], 0
+    for l in lines:
+        acc += len(l)
+        bounds.append(hook_end + (dur - hook_end) * acc / total)
+
+    def line_end(i: int) -> float:  # line 0 = hook
+        return hook_end if i <= 0 else bounds[min(i, len(bounds) - 1)]
+
+    segs, t = [], 0.0
+    for s in sorted(shots, key=lambda s: int(s.get("from", 0))):
+        end = line_end(int(s.get("to", 0)))
+        if end <= t + 1.0:
+            continue
+        segs.append({"len": end - t, "file": s.get("file")})
+        t = end
+    if t < dur - 0.05:
+        segs.append({"len": dur - t, "file": None})
+    return segs
+
+
+def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
+    """Segments (licensed clip or gradient scene) crossfaded on exact cumulative
+    boundaries — reads as edited cuts, not a static loop."""
+    inputs, fc = [], ""
+    pals = random.sample(PALETTES, k=len(PALETTES))
+    for i, seg in enumerate(segs):
+        d = seg["len"] + XFADE
+        if seg["file"]:
+            inputs += ["-stream_loop", "-1", "-t", f"{d:.2f}", "-i", seg["file"]]
+            fc += (f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+                   f"crop=1080:1920,fps=30,eq=brightness=-0.06:saturation=0.95,"
+                   f"trim=duration={d:.2f},setpts=PTS-STARTPTS[p{i}];")
+        else:
+            c0, c1 = pals[i % len(pals)]
+            x0, y0 = random.randint(0, 540), random.randint(0, 960)
+            x1, y1 = random.randint(540, 1079), random.randint(960, 1919)
+            inputs += ["-f", "lavfi", "-i",
+                       f"gradients=s=1080x1920:c0={c0}:c1={c1}:x0={x0}:y0={y0}:"
+                       f"x1={x1}:y1={y1}:speed=0.04:r=30:d={d:.2f}"]
+            fc += f"[{i}:v]null[p{i}];"
+    if len(segs) == 1:
+        return inputs, fc + "[p0]null[bg];"
+    prev, cum = "[p0]", 0.0
+    for i in range(1, len(segs)):
+        cum += segs[i - 1]["len"]
+        out = "[bg]" if i == len(segs) - 1 else f"[x{i}]"
+        fc += (f"{prev}[p{i}]xfade=transition=fade:duration={XFADE}:"
+               f"offset={cum:.2f}{out};")
         prev = out
-    return inputs, fc, n
+    return inputs, fc
 
 
-def render(voice_meta: dict, out_dir: Path, template: str = "clean-card") -> Path:
+def render(voice_meta: dict, out_dir: Path, body: dict | None = None,
+           shots: list[dict] | None = None) -> Path:
     build_ass(voice_meta["words"], out_dir / "captions.ass")
     dur = voice_meta["duration"] + 0.5
-    bg_inputs, bg_fc, n = _background(dur)
+
+    if shots and any(s.get("file") for s in shots) and body:
+        segs = _segments_from_shots(shots, body, voice_meta["words"], dur)
+    else:  # gradient scenes only
+        n = max(1, round(dur / SCENE_LEN))
+        segs = [{"len": dur / n, "file": None} for _ in range(n)]
+    bg_inputs, bg_fc = _compose_background(segs)
+    n = len(segs)
 
     voice_idx = n
     cmd = ["ffmpeg", "-y", "-v", "error", *bg_inputs, "-i", "voice.mp3"]

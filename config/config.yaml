@@ -1,8 +1,12 @@
 market: th
 language: th
 
-# claude -p model for script generation + fact-check (sonnet: cheap on session limits, plenty for this)
+# claude -p models (headless calls bill the metered automation credit, not session limits)
 model: sonnet
+scriptgen:
+  drafts: 3            # competing story-angle drafts per video
+  model: sonnet        # drafts + judge + fact-check
+  polish_model: opus   # final rewrite — the words that actually ship
 
 daily_quota: 1            # videos to fully produce per daily run
 script_seconds: [20, 40]  # target spoken length

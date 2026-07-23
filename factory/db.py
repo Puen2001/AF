@@ -61,6 +61,10 @@ def connect(db_path: str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path or ROOT / "factory.db")
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(products)")}
+    for col, typ in (("score", "REAL"), ("research", "TEXT")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE products ADD COLUMN {col} {typ}")
     return conn
 
 
@@ -77,8 +81,9 @@ def upsert_product(conn, *, source, source_key, name, category=None, price_thb=N
     return cur.rowcount > 0
 
 
-def rows(conn, table: str, status: str, limit: int | None = None):
-    q = f"SELECT * FROM {table} WHERE status=? ORDER BY id"
+def rows(conn, table: str, status: str, limit: int | None = None,
+         order: str = "id"):
+    q = f"SELECT * FROM {table} WHERE status=? ORDER BY {order}"
     if limit:
         q += f" LIMIT {int(limit)}"
     return conn.execute(q, (status,)).fetchall()

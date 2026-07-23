@@ -6,13 +6,14 @@
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory import db, discover, render, scriptgen, voice  # noqa: E402
+from factory import broll, db, director, discover, render, scriptgen, voice  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 
@@ -21,26 +22,55 @@ def load_cfg() -> dict:
     return yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
 
 
+def load_secrets():
+    p = ROOT / "config" / "secrets.env"
+    if p.exists():
+        for line in p.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.split("#")[0].strip())
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["daily", "dry-run", "status"])
+    ap.add_argument("command", choices=["daily", "dry-run", "weekly", "status"])
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
     cfg = load_cfg()
+    load_secrets()
     conn = db.connect()
 
     if args.command == "status":
         print(json.dumps(db.counts(conn), indent=2))
         return
 
+    if args.command == "weekly":
+        print(json.dumps(director.analyze(conn, cfg), ensure_ascii=False, indent=2))
+        return
+
     limit = args.limit or (1 if args.command == "dry-run" else cfg["daily_quota"])
 
     d = discover.run(conn)
+    d["triaged"] = discover.triage(conn, cfg)
     print(f"[discover] {d}")
 
-    for r in scriptgen.run(conn, cfg, limit=limit):
-        print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
+    picks = director.plan(conn, cfg, limit)
+    if picks:
+        print(f"[director] {json.dumps(picks, ensure_ascii=False)}")
+        for pick in picks:
+            product = conn.execute("SELECT * FROM products WHERE id=?",
+                                   (pick["product_id"],)).fetchone()
+            try:
+                r = scriptgen.generate_one(conn, product, cfg,
+                                           suggested_angle=pick.get("angle"))
+            except Exception as e:
+                r = {"product": product["name"], "status": "error", "error": str(e)}
+            print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
+    else:
+        for r in scriptgen.run(conn, cfg, limit=limit):
+            print(f"[scriptgen] {json.dumps(r, ensure_ascii=False)}")
 
     # produce: checked scripts that have no video yet → voice + render
     pending = conn.execute(
@@ -54,13 +84,17 @@ def main():
             meta = voice.synth(body["hook"], body["lines"],
                                cfg["voice"]["primary"], vdir,
                                rate=cfg["voice"].get("rate", "+0%"))
-            mp4 = render.render(meta, vdir)
+            shots = broll.resolve(body.get("shots", []))
+            template = ("broll" if any(sh.get("file") for sh in shots)
+                        else "clean-card")
+            mp4 = render.render(meta, vdir, body=body, shots=shots)
             conn.execute(
                 "INSERT INTO videos (script_id, template, file, status, created_at) "
                 "VALUES (?,?,?,?,?)",
-                (s["id"], "clean-card", str(mp4), "rendered", db.now()))
+                (s["id"], template, str(mp4), "rendered", db.now()))
             conn.commit()
-            print(f"[produce] script {s['id']} → {mp4} ({meta['duration']}s)")
+            print(f"[produce] script {s['id']} → {mp4} "
+                  f"({meta['duration']}s, {template})")
         except Exception as e:
             print(f"[produce] script {s['id']} FAILED: {e}")
 
