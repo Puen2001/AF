@@ -135,28 +135,30 @@ def _segments_from_shots(shots: list[dict], line_spans: list[dict],
 
 
 def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
-    """Segments (licensed clip or gradient scene) crossfaded on exact cumulative
-    boundaries — reads as edited cuts, not a static loop."""
+    """HARD CUTS between shots by default (a crossfade on every cut reads as a
+    slideshow — auto-edit research names it the #1 'feels off' cause). Each shot is
+    cropped to 9:16 with a slow Ken Burns drift, trimmed to its exact narration span,
+    then concatenated. A short fade is kept ONLY at the hook→body boundary."""
     inputs, fc = [], ""
     pals = random.sample(PALETTES, k=len(PALETTES))
     for i, seg in enumerate(segs):
-        d = seg["len"] + XFADE
+        d = seg["len"]
         if seg["file"]:
             is_img = str(seg["file"]).lower().rsplit(".", 1)[-1] in (
                 "jpg", "jpeg", "png", "webp")
-            if is_img:                       # still photo — loop it for the segment
+            if is_img:
                 inputs += ["-loop", "1", "-t", f"{d:.2f}", "-i", seg["file"]]
             else:
                 inputs += ["-stream_loop", "-1", "-t", f"{d:.2f}", "-i", seg["file"]]
-            # oversize → crop → slow Ken Burns zoom (alternating in/out) so even
-            # a still product photo has life; brightness/sat pull keeps captions readable
+            # alternate slow zoom in/out so adjacent hard-cut shots feel distinct
             zin = "min(zoom+0.0006,1.14)" if i % 2 == 0 else "max(1.14-0.0006*on,1.0)"
             fc += (f"[{i}:v]scale=1188:2112:force_original_aspect_ratio=increase,"
                    f"crop=1188:2112,fps=30,"
                    f"zoompan=z='{zin}':d=1:x='iw/2-(iw/zoom/2)':"
                    f"y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30,"
                    f"eq=brightness=-0.06:saturation=0.95,"
-                   f"trim=duration={d:.2f},setpts=PTS-STARTPTS[p{i}];")
+                   f"trim=duration={d:.2f},setpts=PTS-STARTPTS,"
+                   f"fps=30,setsar=1,format=yuv420p[p{i}];")
         else:
             c0, c1 = pals[i % len(pals)]
             x0, y0 = random.randint(0, 540), random.randint(0, 960)
@@ -164,16 +166,12 @@ def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
             inputs += ["-f", "lavfi", "-i",
                        f"gradients=s=1080x1920:c0={c0}:c1={c1}:x0={x0}:y0={y0}:"
                        f"x1={x1}:y1={y1}:speed=0.04:r=30:d={d:.2f}"]
-            fc += f"[{i}:v]null[p{i}];"
+            fc += (f"[{i}:v]trim=duration={d:.2f},setpts=PTS-STARTPTS,"
+                   f"fps=30,setsar=1,format=yuv420p[p{i}];")
     if len(segs) == 1:
         return inputs, fc + "[p0]null[bg];"
-    prev, cum = "[p0]", 0.0
-    for i in range(1, len(segs)):
-        cum += segs[i - 1]["len"]
-        out = "[bg]" if i == len(segs) - 1 else f"[x{i}]"
-        fc += (f"{prev}[p{i}]xfade=transition=fade:duration={XFADE}:"
-               f"offset={cum:.2f}{out};")
-        prev = out
+    fc += "".join(f"[p{i}]" for i in range(len(segs)))
+    fc += f"concat=n={len(segs)}:v=1:a=0[bg];"
     return inputs, fc
 
 

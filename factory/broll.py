@@ -128,6 +128,34 @@ def _wikimedia(query: str) -> list[dict]:
         return []
 
 
+def _archive_org(query: str) -> list[dict]:
+    """Keyless public-domain VIDEO from Archive.org. Legal, no API key. Coverage is
+    thin for gadgets (skews documentary/archival) but it's real, free, licensed video."""
+    try:
+        r = _get("https://archive.org/advancedsearch.php", params={
+            "q": f'({query}) AND mediatype:movies AND format:(MP4)',
+            "fl[]": "identifier", "rows": 4, "output": "json"}, timeout=20)
+        r.raise_for_status()
+        out = []
+        for doc in r.json().get("response", {}).get("docs", []):
+            ident = doc.get("identifier")
+            if not ident:
+                continue
+            m = _get(f"https://archive.org/metadata/{ident}", timeout=20)
+            files = m.json().get("files", [])
+            mp4 = next((f for f in files
+                        if f.get("name", "").lower().endswith(".mp4")
+                        and int(f.get("height", 0) or 0) >= MIN_H), None)
+            if mp4:
+                out.append({"url": f"https://archive.org/download/{ident}/{mp4['name']}",
+                            "width": int(mp4.get("width", 0) or 0),
+                            "height": int(mp4.get("height", 0) or 0),
+                            "duration": None, "source": "archive.org"})
+        return out
+    except Exception:
+        return []
+
+
 def _wikimedia_image(query: str) -> list[dict]:
     """Keyless still images from Commons (product photos etc.). Rendered with Ken
     Burns motion. Abundant + lighter than video, so a good product-shot source."""
@@ -165,14 +193,13 @@ def _broaden(query: str):
 
 
 def _best_for(query: str, want_product: bool = False) -> dict | None:
-    """Find the best clip/still for a query. For product shots, still images are
-    a strong fallback (product photos are abundant), so include them."""
+    """Find the best clip/still for a query. Keyless image catalogs are far richer
+    than keyless video, so a MATCHING still (Ken-Burns'd) beats a mismatched clip —
+    images are always in the candidate pool, not just a last resort."""
     for q in _broaden(query):
         if not q:
             continue
-        cands = _pexels(q) + _pixabay(q) + _wikimedia(q)
-        if want_product or not cands:
-            cands += _wikimedia_image(q)   # product stills, Ken-Burns'd in render
+        cands = _pexels(q) + _pixabay(q) + _wikimedia(q) + _wikimedia_image(q)
         cands = [c for c in cands if c["height"] >= MIN_H
                  and (c.get("duration") is None or c["duration"] >= DUR_MIN)]
         if cands:
