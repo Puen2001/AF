@@ -316,10 +316,21 @@ def generate_from_topic(conn, topic, cfg, suggested_angle: str | None = None) ->
     except Exception:
         pass
     if attach.get("attach"):
-        body["lines"].append(attach.get("soft_line", cfg["soft_cta"]))
-        body["caption"] = (body.get("caption", "") + "\n" + cfg["disclosure"])
-        body["product"] = {"category": attach.get("category"),
-                           "search": attach.get("search")}
+        # know the product before selling it — review-research + quality gate
+        reviews = research.product_reviews(
+            attach.get("search") or attach.get("category") or topic["title"], cfg)
+        if reviews and reviews.get("worth_featuring") is False:
+            attach = {"attach": False,
+                      "soft_line": "กด follow ไว้ เดี๋ยวมีเรื่องน่ารู้มาเล่าอีก"}
+            body["product"] = None
+            if attach.get("soft_line"):
+                body["lines"].append(attach["soft_line"])
+        else:
+            body["lines"].append(attach.get("soft_line", cfg["soft_cta"]))
+            body["caption"] = (body.get("caption", "") + "\n" + cfg["disclosure"])
+            body["product"] = {"category": attach.get("category"),
+                               "search": attach.get("search"),
+                               "reviews": reviews}
     else:
         if attach.get("soft_line"):
             body["lines"].append(attach["soft_line"])

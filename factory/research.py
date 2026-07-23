@@ -44,6 +44,33 @@ TOPIC_PROMPT = """คุณคือนักวิจัยคอนเทน�
   "misconceptions": ["..."], "surprise": "..."}}"""
 
 
+REVIEW_PROMPT = """คุณคือนักรีวิวสินค้าที่ตรงไปตรงมา ค้นรีวิวจริงของสินค้าประเภทนี้ในตลาดไทย
+ก่อนจะแนะนำให้คนดูซื้อ เราต้อง "รู้จักของจริง"
+
+สินค้า/คำค้น: {query}
+
+ค้นเว็บ/รีวิว แล้วสรุป:
+- worth_featuring: สินค้าประเภทนี้ "ดีพอจะแนะนำ" ไหม (true/false) — ถ้ารีวิวส่วนใหญ่แย่/มีปัญหาเยอะ = false
+- praise: จุดที่คนชมบ่อย
+- complaints: จุดที่คนบ่นบ่อย / ข้อควรระวังก่อนซื้อ
+- buy_tip: สิ่งที่ควรดูก่อนซื้อ (สเปก/มาตรฐาน/รุ่นที่ควรเลี่ยง) เพื่อให้คำแนะนำซื่อสัตย์
+
+ตอบเป็น JSON เท่านั้น:
+{{"worth_featuring": true/false, "praise": ["..."], "complaints": ["..."], "buy_tip": "..."}}"""
+
+
+def product_reviews(query: str, cfg: dict) -> dict | None:
+    """Research real reviews for a product before recommending it — honesty + a
+    quality gate (skip junk). Category level so it stays reusable."""
+    sg = cfg.get("scriptgen", {})
+    try:
+        return claude_p(REVIEW_PROMPT.format(query=query),
+                        sg.get("research_model", sg.get("model", cfg.get("model", "sonnet"))),
+                        tools="WebSearch", timeout=300)
+    except Exception:
+        return None
+
+
 def ensure_topic(conn, topic, cfg) -> dict | None:
     """Web research brief for a story topic, cached in topics.research."""
     if topic["research"]:
