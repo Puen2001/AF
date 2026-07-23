@@ -1,4 +1,6 @@
 config/secrets.env
+config/yt_token.json
+config/*client_secret*.json
 factory.db
 queue/
 assets/cache/
