@@ -14,9 +14,9 @@ import requests
 from . import db
 
 
-def _tg(token: str, method: str, *, files=None, **params):
+def _tg(token: str, method: str, *, files=None, timeout=120, **params):
     r = requests.post(f"https://api.telegram.org/bot{token}/{method}",
-                      data=params, files=files, timeout=120)
+                      data=params, files=files, timeout=timeout)
     r.raise_for_status()
     return r.json()["result"]
 
@@ -49,9 +49,14 @@ def send_pending(conn, cfg) -> int:
         kb = {"inline_keyboard": [[
             {"text": "✅ โพสต์", "callback_data": f"ok:{v['id']}"},
             {"text": "❌ ทิ้ง", "callback_data": f"no:{v['id']}"}]]}
-        with open(v["file"], "rb") as f:
-            msg = _tg(token, "sendVideo", chat_id=chat, caption=caption[:1024],
-                      reply_markup=json.dumps(kb), files={"video": f})
+        try:
+            with open(v["file"], "rb") as f:
+                msg = _tg(token, "sendVideo", chat_id=chat,
+                          caption=caption[:1024], reply_markup=json.dumps(kb),
+                          files={"video": f}, timeout=(30, 600))
+        except Exception as e:  # one slow upload must not abort the batch
+            print(f"[approve] send failed for video {v['id']}: {e}")
+            continue
         conn.execute("UPDATE videos SET status='pending_approval', tg_msg_id=? "
                      "WHERE id=?", (msg["message_id"], v["id"]))
         conn.commit()
@@ -60,6 +65,9 @@ def send_pending(conn, cfg) -> int:
 
 
 def poll(conn, cfg) -> int:
+    if cfg.get("approval", {}).get("mode") == "alfred":
+        return 0  # shared bot: alfred-telegram.py owns getUpdates and flips
+                  # video statuses directly — polling here would steal updates
     token, chat = _env()
     if not token:
         return 0

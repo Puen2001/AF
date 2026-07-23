@@ -40,6 +40,10 @@ publish:
   privacy: unlisted    # launch-warming; switch to public when confident
   category_id: "28"    # Science & Technology
 
+approval:
+  mode: alfred         # alfred = shared batcave bot owns callbacks (Mac only);
+                       # dedicated = factory polls its own bot (required on gotham)
+
 paths:
   db: factory.db
   queue: queue
