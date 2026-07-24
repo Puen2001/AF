@@ -150,21 +150,25 @@ def _vision_pick(sheet_path: str, requirement: str,
         f"This is compilation B-ROLL for a curiosity short-form video (TOGE-style). I need "
         f"ONE frame for this narration beat:\n"
         f"  BEAT: {requirement}{prod}\n\n"
-        f"THE MUTED TEST — the only rule that matters: with the sound OFF, does the frame "
-        f"visually communicate THIS beat's meaning? Pick the frame that best illustrates "
-        f"THIS exact sentence.\n"
-        f"- Faces are GOOD when the beat is a human reaction/use (a person reacting, tasting, "
-        f"holding, demonstrating). Do NOT reject a frame just for having a face.\n"
+        f"THE MUTED TEST — the main rule: with the sound OFF, does the frame visually "
+        f"communicate THIS beat's meaning? Pick the frame that best illustrates THIS "
+        f"exact sentence.\n"
+        f"- Faces are OK when the beat is a human reaction/use (reacting, tasting, holding, "
+        f"demonstrating). Do NOT reject just for a face.\n"
+        f"- BUT AVOID (pick a cleaner frame if one exists): (a) frames with large BURNED-IN "
+        f"text/subtitles/captions on them — they clash with our own captions; (b) for a "
+        f"PRODUCT beat, a person just TALKING TO CAMERA (a reviewer) when the product itself "
+        f"is barely shown — prefer the product actually in use.\n"
         f"- Any authentic footage type qualifies: reaction, hands demonstrating, object "
-        f"close-up, scientific comparison, product shot, real-world scene.\n"
-        f"- REJECT a frame only if it does NOT illustrate this beat (unrelated topic / "
-        f"generic filler){' or shows a WRONG product' if product_name else ''}.\n\n"
+        f"close-up, comparison, product-in-use, real-world scene.\n"
+        f"- REJECT a frame only if it does NOT illustrate this beat (unrelated / generic "
+        f"filler){' or shows a WRONG product' if product_name else ''}.\n\n"
         f"Pick the single best frame and read its burned-in timestamp. Reply ONLY JSON:\n"
         f"{{\"ts\":\"mm:ss\", \"seconds\":<int>, \"illustrates\":true|false, "
-        f"\"wrong_product\":true|false, \"match\":0-1, "
+        f"\"wrong_product\":true|false, \"heavy_text\":true|false, \"match\":0-1, "
         f"\"seen\":\"<=8 words what is in the frame\"}}\n"
-        f"illustrates=true only if the frame passes the muted test for THIS beat. "
-        f"If no frame does, illustrates=false.")
+        f"heavy_text=true if the chosen frame has large burned-in caption/subtitle text. "
+        f"illustrates=true only if the frame passes the muted test for THIS beat.")
     try:
         r = claude_p(prompt, VISION_MODEL, tools="Read", timeout=120)
     except Exception:
@@ -224,21 +228,28 @@ def _extract(video_id: str, center: float, want: float, dur: float) -> str | Non
 
 def _passes(pick: dict, want_product: bool, min_match: float) -> bool:
     """TOGE muted-test gate: the clip must ILLUSTRATE this exact beat. Faces are fine
-    (reaction/demonstration footage is the point). The only extra rule is that a beat
-    which is meant to SHOW THE PRODUCT must not show a different product."""
+    (reaction/demonstration footage is the point). Extra rules: a product beat must not
+    show a different product, and no frame with large burned-in captions (they collide
+    with the captions we render ourselves)."""
     if not pick or not pick.get("illustrates"):
         return False
     if want_product and pick.get("wrong_product"):
+        return False
+    if pick.get("heavy_text"):
         return False
     return float(pick.get("match", 0)) >= min_match
 
 
 def _find(requirement: str, product_name: str | None, want: float,
-          min_match: float = 0.55) -> dict | None:
-    """Full muted-test vision pipeline for one narration beat. Returns a beat-matched
-    clip or None (caller shows an honest card — never random filler)."""
+          min_match: float = 0.55, exclude: set | None = None) -> dict | None:
+    """Full muted-test vision pipeline for one narration beat. `exclude` is a set of
+    source video ids already used in this video — skip them so beats don't reuse the
+    same clip (MMR-style diversity; fixes 'shots 2 & 5 are the same video')."""
     want_product = bool(product_name)
-    for cand in _search(_queries(requirement, product_name), n=5):
+    exclude = exclude or set()
+    for cand in _search(_queries(requirement, product_name), n=6):
+        if cand["id"] in exclude:
+            continue
         proxy = _proxy_download(cand["id"])
         if not proxy:
             continue
@@ -253,8 +264,8 @@ def _find(requirement: str, product_name: str | None, want: float,
             continue
         clip = _extract(cand["id"], float(pick["seconds"]), want, cand["duration"])
         if clip:
-            return {"file": clip, "source": cand["platform"], "url": cand["url"],
-                    "title": cand["title"], "ts": pick.get("ts"),
+            return {"file": clip, "id": cand["id"], "source": cand["platform"],
+                    "url": cand["url"], "title": cand["title"], "ts": pick.get("ts"),
                     "match": pick.get("match"), "seen": pick.get("seen"),
                     "why": f"muted-test “{requirement[:50]}” (match {pick.get('match')}, "
                            f"seen: {pick.get('seen')})"}
@@ -290,9 +301,10 @@ def probe(requirement: str, product_name: str | None = None) -> dict:
 
 
 def best_clip(query: str, want_seconds: float = 7.0,
-              product_name: str | None = None) -> dict | None:
-    """AUTO path: best vision-matched real video clip for a shot (or None)."""
-    return _find(query, product_name, want_seconds)
+              product_name: str | None = None, exclude: set | None = None) -> dict | None:
+    """AUTO path: best vision-matched real video clip for a shot (or None). `exclude` =
+    source ids already used in this video (diversity)."""
+    return _find(query, product_name, want_seconds, exclude=exclude)
 
 
 def shortlist(query: str, want_seconds: float = 7.0, n: int = 4,

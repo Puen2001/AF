@@ -10,7 +10,7 @@ import json
 import random
 from pathlib import Path
 
-from . import db, research
+from . import affiliate, db, research
 from .llm import claude_p
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -152,12 +152,21 @@ PRODUCT_MATCH_PROMPT = """เรื่องเล่านี้จบแล้
 เกณฑ์: แนบเฉพาะเมื่อมีสินค้าที่ "โผล่ในเรื่องอยู่แล้ว" หรือเกี่ยวโดยตรงจนคนดูอยากได้เอง
 ถ้าต้องยัด/ฝืน = ห้ามแนบ (ปล่อยเป็นคลิปความรู้ล้วน สร้างฐานคนดู)
 
+**กติกา affiliate (สำคัญมาก):** สินค้าที่แนบต้อง "กดลิงก์ affiliate ได้จริงบน Shopee" เท่านั้น =
+- ต้องเป็น **ของ generic/แบรนด์จีนถูกๆ** ที่ผู้ขายรายย่อยลงขายเอง ราคา **฿{pmin}-{pmax}** (สาย impulse)
+- **ห้ามเป็นแบรนด์พรีเมียมเด็ดขาด** (Apple/Apple Watch, Samsung Galaxy เรือธง, Dyson, Sony, DJI, GoPro,
+  Garmin, Fitbit ฯลฯ) — พวกนี้ไม่มี affiliate ในไทย กดลิงก์ไม่ได้
+- ถ้าเรื่องพาไปหาของพรีเมียม (เช่นนึกถึง Apple Watch) ให้ **แนบเวอร์ชัน generic ราคาถูกแทน**
+  (เช่น "สมาร์ทวอทช์วัดชีพจรราคาประหยัด") และเล่าที่ "ประโยชน์/การใช้งาน" ไม่ใช่ที่แบรนด์
+หมวดที่ affiliate ได้ดี: {allow}
+
 เรื่อง: {script}
 หมวดสินค้าที่พอจะเกี่ยว (ถ้ามี): {hint}
 
 ตอบเป็น JSON เท่านั้น:
-{{"attach": true/false, "category": "หมวดสินค้า", "search": "คำค้นหาสินค้าบน Shopee",
-  "soft_line": "ประโยคปิดเนียนๆ ที่โยงสินค้าเข้ากับเรื่อง (ถ้า attach=false ให้เป็นประโยคชวน follow/คอมเมนต์แทน ไม่มีลิงก์)"}}"""
+{{"attach": true/false, "category": "หมวดสินค้า generic", "search": "คำค้นหาสินค้า generic บน Shopee",
+  "price_thb": <ราคาโดยประมาณเป็นตัวเลข ในช่วง {pmin}-{pmax}>,
+  "soft_line": "ประโยคปิดเนียนๆ โยงของ generic เข้ากับเรื่อง เล่าที่การใช้งาน ไม่เอ่ยแบรนด์พรีเมียม (ถ้า attach=false ให้เป็นประโยคชวน follow ไม่มีลิงก์)"}}"""
 
 MARKETING_PROMPT = """คุณคือนักการตลาดคอนเทนต์วิดีโอสั้นตลาดไทย จัดแพ็กเกจการโพสต์สำหรับสคริปต์นี้
 สินค้า: {name} · สคริปต์: {script}
@@ -347,9 +356,15 @@ def generate_from_topic(conn, topic, cfg, suggested_angle: str | None = None) ->
     attach = {"attach": False}
     try:
         attach = claude_p(PRODUCT_MATCH_PROMPT.format(
-            script=_script_text(body), hint=topic["product_hint"] or "-"), model)
+            script=_script_text(body), hint=topic["product_hint"] or "-",
+            pmin=affiliate.PRICE_MIN, pmax=affiliate.PRICE_MAX,
+            allow=", ".join(affiliate.ALLOW_CATEGORIES)), model)
     except Exception:
         pass
+    # affiliate-availability gate: block premium/no-affiliate products (e.g. Apple Watch)
+    attach = affiliate.gate(attach)
+    if attach.get("affiliate_reject"):
+        print(f"[affiliate] blocked: {attach['affiliate_reject']}")
     if attach.get("attach"):
         # know the product before selling it — review-research + quality gate
         reviews = research.product_reviews(

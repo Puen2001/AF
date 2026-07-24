@@ -318,6 +318,7 @@ def resolve(shots: list[dict], cfg: dict | None = None,
     from . import footage
     is_vid = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in ("mp4", "webm", "mov")
     media_pool = list(product_media or [])
+    used: set = set()          # source video ids already used → no repeated clips (diversity)
     out = []
     for i, s in enumerate(shots or []):
         if s.get("file"):
@@ -331,12 +332,15 @@ def resolve(shots: list[dict], cfg: dict | None = None,
             if is_vid(f):
                 chosen = f
                 s = {**s, "source": "product-media"}
-        # 2. muted-test beat-matched clip (faces OK when the beat is reaction/use)
+        # 2. muted-test beat-matched clip (faces OK; diverse source per beat)
         if not chosen:
             hit = footage.best_clip(query, want_seconds=7.0,
-                                    product_name=product_name if is_product else None)
+                                    product_name=product_name if is_product else None,
+                                    exclude=used)
             if hit:
                 chosen = hit["file"]
+                if hit.get("id"):
+                    used.add(hit["id"])
                 s = {**s, "source": hit["source"], "ref": hit["url"],
                      "ref_title": hit["title"], "moment": hit.get("ts")}
         out.append({**s, "file": chosen})
