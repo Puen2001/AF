@@ -127,7 +127,7 @@ def main():
     # produce: checked scripts that have no video yet → voice + render
     pending = conn.execute(
         "SELECT s.* FROM scripts s LEFT JOIN videos v ON v.script_id = s.id "
-        "WHERE s.status='checked' AND v.id IS NULL ORDER BY s.id LIMIT ?",
+        "WHERE s.status='checked' AND v.id IS NULL ORDER BY s.id DESC LIMIT ?",
         (limit,)).fetchall()
     for s in pending:
         body = json.loads(s["body"])

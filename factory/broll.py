@@ -37,6 +37,15 @@ def _get(url, **kw):
 
 MIN_H = 640          # reject clips shorter than this — no 480p mush
 DUR_MIN, DUR_MAX = 3, 40
+# hard brand-safety skip: never pull suggestive/graphic results (title match)
+UNSAFE = ("nude", "naked", "lingerie", "bikini", "underwear", "sexy", "erotic",
+          "breast", "boudoir", "topless", "porn", "crash", "wreck", "accident",
+          "corpse", "death", "gore", "weapon", "gun")
+
+
+def _safe(title: str) -> bool:
+    t = (title or "").lower()
+    return not any(w in t for w in UNSAFE)
 
 
 def _score(c: dict) -> float:
@@ -116,8 +125,7 @@ def _wikimedia(query: str) -> list[dict]:
             ii = (p.get("imageinfo") or [{}])[0]
             title = p.get("title", "").lower()
             # skip anything that reads as a disaster/graphic clip (safety)
-            if any(w in title for w in ("crash", "wreck", "fire", "accident",
-                                        "explosion", "war", "death")):
+            if not _safe(title):
                 continue
             if ii.get("url") and ii.get("height"):
                 out.append({"url": ii["url"], "width": ii.get("width", 0),
@@ -172,7 +180,7 @@ def _wikimedia_image(query: str) -> list[dict]:
             title = p.get("title", "").lower()
             if ii.get("mediatype") != "BITMAP" or ii.get("width", 0) < 800:
                 continue
-            if any(w in title for w in ("crash", "wreck", "accident", "death")):
+            if not _safe(title):
                 continue
             out.append({"url": ii["url"], "width": ii.get("width", 0),
                         "height": ii.get("height", 0), "duration": None,
@@ -182,19 +190,22 @@ def _wikimedia_image(query: str) -> list[dict]:
         return []
 
 
-def _broaden(query: str):
-    """Yield the query, then progressively broader versions (drop trailing words)."""
+def _broaden(query: str, product: bool = False):
+    """Yield the query, then broader versions. For product shots we stop at 2 words
+    — dropping to a single generic word ('hand'/'person') pulls irrelevant results."""
     words = (query or "").split()
     yield query
+    if len(words) >= 4:
+        yield " ".join(words[:3])
     if len(words) >= 3:
         yield " ".join(words[:2])
-    if len(words) >= 2:
+    if not product and len(words) >= 2:
         yield words[0]
 
 
 def _ranked(query: str, want_product: bool = False, limit: int = 6) -> list[dict]:
     """Top-N candidates for a query (for the human-curation shortlist)."""
-    for q in _broaden(query):
+    for q in _broaden(query, want_product):
         if not q:
             continue
         cands = (_pexels(q) + _pixabay(q) + _wikimedia(q)
@@ -240,7 +251,7 @@ def _best_for(query: str, want_product: bool = False) -> dict | None:
     """Find the best clip/still for a query. Keyless image catalogs are far richer
     than keyless video, so a MATCHING still (Ken-Burns'd) beats a mismatched clip —
     images are always in the candidate pool, not just a last resort."""
-    for q in _broaden(query):
+    for q in _broaden(query, want_product):
         if not q:
             continue
         cands = _pexels(q) + _pixabay(q) + _wikimedia(q) + _wikimedia_image(q)

@@ -39,10 +39,12 @@ def send_pending(conn, cfg) -> int:
         s = conn.execute("SELECT * FROM scripts WHERE id=?",
                          (v["script_id"],)).fetchone()
         p = conn.execute("SELECT * FROM products WHERE id=?",
-                         (s["product_id"],)).fetchone()
+                         (s["product_id"],)).fetchone() if s["product_id"] else None
         body = json.loads(s["body"])
         yt = body.get("marketing", {}).get("youtube", {})
-        caption = (f"🎬 {p['name']}\n"
+        # topic-mode scripts (no product) fall back to the hook as the title
+        name = p["name"] if p else body.get("hook", "")[:50]
+        caption = (f"🎬 {name}\n"
                    f"「{body['hook']}」\n\n"
                    f"YT: {yt.get('title', '-')}\n"
                    f"✅ = โพสต์  |  ❌ = ทิ้ง")
