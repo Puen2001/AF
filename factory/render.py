@@ -127,10 +127,12 @@ def _segments_from_shots(shots: list[dict], line_spans: list[dict],
         end = line_end(s.get("to", 0))
         if end <= t + 1.0:                 # too short to be a real cut — skip
             continue
-        segs.append({"len": round(end - t, 2), "file": s.get("file")})
+        # a shot with no matched footage → honest CARD, never random filler footage
+        segs.append({"len": round(end - t, 2), "file": s.get("file"),
+                     "card": not s.get("file")})
         t = end
     if t < dur - 0.05:
-        segs.append({"len": round(dur - t, 2), "file": None})
+        segs.append({"len": round(dur - t, 2), "file": None, "card": True})
     return segs
 
 
@@ -158,6 +160,15 @@ def _compose_background(segs: list[dict]) -> tuple[list[str], str]:
                    f"y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30,"
                    f"eq=brightness=-0.06:saturation=0.95,"
                    f"trim=duration={d:.2f},setpts=PTS-STARTPTS,"
+                   f"fps=30,setsar=1,format=yuv420p[p{i}];")
+        elif seg.get("card"):
+            # honest no-footage beat: a clean, near-solid dark card (NOT vibrant filler).
+            # The burned-in caption still carries the narration → reads as an intentional
+            # "text on background" beat, clearly not fake footage.
+            inputs += ["-f", "lavfi", "-i",
+                       f"gradients=s=1080x1920:c0=0x0b0d12:c1=0x161a24:"
+                       f"x0=0:y0=0:x1=1079:y1=1919:speed=0.01:r=30:d={d:.2f}"]
+            fc += (f"[{i}:v]trim=duration={d:.2f},setpts=PTS-STARTPTS,"
                    f"fps=30,setsar=1,format=yuv420p[p{i}];")
         else:
             c0, c1 = pals[i % len(pals)]

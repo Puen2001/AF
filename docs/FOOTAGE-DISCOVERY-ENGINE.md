@@ -88,14 +88,21 @@ gets faster and smarter per video.
 
 | Capability | Status |
 |---|---|
-| Scene → shot list with visual intent | ✅ (SHOTS_PROMPT) — upgrade to the 7-field requirement (emotion/action/object/location/event/angle/evidence) ⬜ |
-| Multi-source search + rank + quality gate | ✅ broll (Pexels/Pixabay/Wikimedia/Archive/images) — auto-fetch tier |
-| Reference-tier search (YouTube/social/product pages, return URL not download) | ⬜ new — the core of this engine |
-| Rich result metadata (creator/timestamp/why/license/confidence/tier) | ⬜ upgrade shortlist entries |
-| Human curation web page (playable previews, pick best) | ✅ curate.py |
+| Scene → shot list with visual intent | ✅ (SHOTS_PROMPT, incl. type=product/context) — upgrade to the 7-field requirement ⬜ |
+| Multi-source search + rank + quality gate | ✅ broll — now VIDEO-ONLY (Pexels/Pixabay/Wikimedia/Archive video; still-image sources dropped) |
+| Reference-tier search (YouTube/social, real footage) | ✅ `footage.py` — keyless YouTube via yt-dlp, download & use directly (operator's channel, free use). TikTok/Shopee ⬜ |
+| **Vision-guided moment selection** (pick the use-case frame, reject wrong-product/talking-head/box/accessory) | ✅ `footage.py` — proxy → timestamped contact sheet → Claude vision judge (`claude -p` + Read tool) → quality-extract |
+| Rich result metadata (url/title/timestamp/why/confidence) | ✅ partial — url/title/ts/why/conf on each clip; creator/license ⬜ |
+| Human curation web page (playable previews, pick best) | ✅ curate.py — now fed vision-matched video candidates |
 | Footage database + memory (dedup, reuse, alternatives) | ⬜ new (`footage` table) |
 | Outlier/proven-topic mining | ✅ outliers.py |
 | AI video generation | ❌ REMOVED — explicitly out of scope |
+
+**Built 2026-07-24:** vision-guided video-only footage engine (`factory/footage.py`).
+Naive per-segment grabbing gave wrong-product / no-use-case clips; the engine now
+*looks* at candidate footage and picks the moment that shows the product performing
+its function, synced per shot. Auto path (`best_clip`) + curate path (`shortlist`).
+Still open: other platforms (TikTok/Shopee), the persistent footage DB, richer license metadata.
 
 ## Explicitly out of scope
 

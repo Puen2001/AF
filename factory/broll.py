@@ -218,9 +218,10 @@ def _ranked(query: str, want_product: bool = False, limit: int = 6) -> list[dict
 
 
 def shortlist(shots: list[dict], cfg: dict | None = None, n: int = 4,
-              product_media: list[str] | None = None) -> list[dict]:
-    """For each shot, download the top-N candidate clips/stills so a human can
-    pick the best. Product shots get their listing media + composited stills too."""
+              product_media: list[str] | None = None,
+              product_name: str | None = None) -> list[dict]:
+    """For each shot, download the top-N candidate VIDEO clips so a human can pick
+    the best. Product shots are vision-matched to real use-case footage."""
     from . import footage
     is_vid = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in ("mp4", "webm", "mov")
     media = list(product_media or [])
@@ -234,8 +235,9 @@ def shortlist(shots: list[dict], cfg: dict | None = None, n: int = 4,
             f = _download(media[i])
             if is_vid(f):
                 files.append(f)
-        # real YouTube video segments — the candidates the human actually wants
-        for hit in footage.shortlist(query, want_seconds=7.0, n=n):
+        # vision-matched real video candidates — the ones the human actually wants
+        for hit in footage.shortlist(query, want_seconds=7.0, n=n,
+                                     product_name=product_name if is_product else None):
             files.append(hit["file"])
             if len(files) >= n:
                 break
@@ -306,10 +308,13 @@ def _best_video(query: str, want_product: bool = False) -> dict | None:
 
 
 def resolve(shots: list[dict], cfg: dict | None = None,
-            product_media: list[str] | None = None) -> list[dict]:
-    """Attach a local VIDEO clip to each shot (file=None → gradient). Video only —
-    no still images. Source order: product's own listing video → real YouTube
-    segment (the footage engine) → stock/CC video → gradient."""
+            product_media: list[str] | None = None,
+            product_name: str | None = None) -> list[dict]:
+    """Attach a beat-matched VIDEO clip to each shot (file=None → honest card, never
+    random filler). TOGE model: every clip must pass the muted test for ITS sentence.
+    Source order: product's own listing video → muted-test YouTube/social clip → card.
+    NO stock/CC fallback — irrelevant stock filler (the 'highway' bug) is exactly what
+    the muted test forbids; if nothing illustrates the beat, we show a card."""
     from . import footage
     is_vid = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in ("mp4", "webm", "mov")
     media_pool = list(product_media or [])
@@ -326,20 +331,13 @@ def resolve(shots: list[dict], cfg: dict | None = None,
             if is_vid(f):
                 chosen = f
                 s = {**s, "source": "product-media"}
-        # 2. real YouTube segment — the footage that actually shows the scene
+        # 2. muted-test beat-matched clip (faces OK when the beat is reaction/use)
         if not chosen:
-            hit = footage.best_clip(query, want_seconds=7.0)
+            hit = footage.best_clip(query, want_seconds=7.0,
+                                    product_name=product_name if is_product else None)
             if hit:
                 chosen = hit["file"]
-                s = {**s, "source": "youtube", "ref": hit["url"],
-                     "ref_title": hit["title"]}
-        # 3. stock / Creative-Commons VIDEO (never a still)
-        if not chosen:
-            best = _best_video(query, want_product=is_product)
-            if best:
-                f = _download(best["url"])
-                if is_vid(f):
-                    chosen = f
-                    s = {**s, "source": best["source"], "res": best["height"]}
+                s = {**s, "source": hit["source"], "ref": hit["url"],
+                     "ref_title": hit["title"], "moment": hit.get("ts")}
         out.append({**s, "file": chosen})
     return out

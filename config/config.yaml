@@ -3,7 +3,7 @@ language: th
 
 # story-first (v2): start from a Thailand trend + audience, tell a story, attach a
 # product only when it genuinely fits. See docs for the flow.
-mode: product-first      # story-first | product-first (real products from seed/feed)
+mode: story-first        # TOGE model: topic → footage-feasibility gate → story → product-as-ending
 
 brand:
   name: ""               # channel name (fill once chosen) — used in branding overlay

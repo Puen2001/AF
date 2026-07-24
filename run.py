@@ -14,7 +14,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory import (approve, broll, curate, db, director, discover,  # noqa: E402
-                     publish, render, scriptgen, trends, voice)
+                     publish, render, scriptgen, topics, trends, voice)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -77,7 +77,8 @@ def main():
         vdir = ROOT / cfg["paths"]["queue"] / f"s{row['id']}"
         prod = body.get("product") or {}
         print("[curate] shortlisting candidates...")
-        sl = broll.shortlist(body.get("shots", []), cfg, product_media=prod.get("media"))
+        sl = broll.shortlist(body.get("shots", []), cfg, product_media=prod.get("media"),
+                             product_name=prod.get("name"))
         picks = curate.curate(sl)
         shots = [{**sh, "file": f} for sh, f in zip(sl, picks)]
         meta = voice.synth(body["hook"], body["lines"], cfg["voice"]["primary"],
@@ -94,11 +95,15 @@ def main():
     limit = args.limit or (1 if args.command == "dry-run" else cfg["daily_quota"])
 
     if cfg.get("mode") == "story-first":
-        # trend → topic → story (product attached only when it fits)
+        # trend → topic → FOOTAGE FEASIBILITY GATE → story (product attached as the
+        # natural ending only when it fits). Pick stories the footage can actually tell.
         print(f"[trends] {trends.discover(conn, cfg)}")
-        topics = db.rows(conn, "topics", "discovered", limit,
-                         order="audience_fit DESC, id")
-        for t in topics:
+        cands = db.rows(conn, "topics", "discovered", 8, order="audience_fit DESC, id")
+        ranked = topics.rank(conn, cfg, cands) if cands else []
+        for r in ranked[:limit]:
+            print(f"[feasibility] {r['score']:.2f} footage={r['feasibility']['score']:.2f} "
+                  f"| {r['topic']['title'][:50]}")
+        for t in [r["topic"] for r in ranked[:limit]]:
             try:
                 r = scriptgen.generate_from_topic(conn, t, cfg)
             except Exception as e:
@@ -138,7 +143,8 @@ def main():
                                rate=cfg["voice"].get("rate", "+0%"))
             prod = body.get("product") or {}
             shots = broll.resolve(body.get("shots", []), cfg,
-                                  product_media=prod.get("media"))
+                                  product_media=prod.get("media"),
+                                  product_name=prod.get("name"))
             template = ("broll" if any(sh.get("file") for sh in shots)
                         else "clean-card")
             mp4 = render.render(meta, vdir, body=body, shots=shots)
