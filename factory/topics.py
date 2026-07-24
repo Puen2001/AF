@@ -57,15 +57,64 @@ def feasibility(topic, cfg) -> dict:
             "confirmed_seen": probe.get("seen")}
 
 
+QUALIFY_PROMPT = """ประเมิน topic นี้สำหรับช่องสาระ-แกดเจ็ตไทยที่หารายได้ด้วย affiliate:
+หัวข้อ: {title}
+มุมเล่า: {angle}
+
+ประเมิน:
+1. affiliate_fit (0-1): เรื่องนี้โยงไปหา "สินค้า generic ที่กดลิงก์ affiliate Shopee ได้จริง"
+   (แกดเจ็ต/ของใช้ราคา ฿100-900) ได้เนียนแค่ไหน — 1=โยงสินค้าได้ชัดเจน, 0=เรื่องวัฒนธรรม/ข่าว/
+   คนดัง ที่โยงสินค้าไม่ได้เลย
+2. product_hint: หมวดสินค้า generic ที่จะแนบได้ (ถ้ามี) ไม่มีให้เป็น ""
+3. rights_safe (true/false): เรื่องนี้ "ไม่ได้" ต้องพึ่งภาพ/คลิป/ใบหน้าของคนดังหรือบุคคลเฉพาะ
+   เจาะจง (เช่น Lisa, นักฟุตบอล/ดาราชื่อดัง, แบรนด์เฉพาะ) เป็นแกนหลักใช่ไหม —
+   true=เล่าด้วยภาพทั่วไป/ของ/กลไกได้ ปลอดภัย, false=ต้องใช้ภาพคนดังเฉพาะ=เสี่ยงลิขสิทธิ์
+
+ตอบ JSON เท่านั้น:
+{{"affiliate_fit": 0-1, "product_hint": "...", "rights_safe": true/false, "reason": "สั้นๆ"}}"""
+
+
+def qualify(topic, cfg) -> dict:
+    """Cheap (no-WebSearch) gate: can this topic attach a real affiliate product, and is
+    it free of specific-celebrity/rights risk? Run BEFORE the expensive footage probe."""
+    try:
+        r = claude_p(QUALIFY_PROMPT.format(title=topic["title"], angle=topic["angle"] or ""),
+                     cfg.get("model", "sonnet"), timeout=120)
+        return {"affiliate_fit": float(r.get("affiliate_fit", 0) or 0),
+                "product_hint": (r.get("product_hint") or "").strip(),
+                "rights_safe": bool(r.get("rights_safe", True)),
+                "reason": r.get("reason", "")}
+    except Exception:
+        return {"affiliate_fit": 0.5, "product_hint": "", "rights_safe": True, "reason": "qualify failed"}
+
+
 def rank(conn, cfg, topics, min_score: float = 0.5) -> list[dict]:
-    """Score candidate topics by footage feasibility + audience fit, GATE out the
-    stories the footage can't tell, and return them best-first. Product is not part
-    of selection here — it is attached later as the natural ending (product = output)."""
+    """Pick a topic that is (1) rights-safe (no specific-celebrity footage), (2) leads to
+    a real affiliate product, AND (3) tellable in footage. Cheap qualify gate runs first
+    so we don't waste footage probes on topics we'd reject. Product is attached later as
+    the natural ending (product = output)."""
+    import sys
     scored = []
     for t in topics:
+        q = qualify(t, cfg)
+        if not q["rights_safe"]:
+            print(f"[qualify] drop (celebrity/rights): {t['title'][:45]} — {q['reason'][:40]}",
+                  file=sys.stderr, flush=True)
+            continue
+        if q["affiliate_fit"] < 0.3:
+            print(f"[qualify] drop (no affiliate fit {q['affiliate_fit']}): {t['title'][:45]}",
+                  file=sys.stderr, flush=True)
+            continue
         f = feasibility(t, cfg)
-        combined = 0.65 * f["score"] + 0.35 * (float(t["audience_fit"] or 0) / 10.0)
-        scored.append({"topic": t, "feasibility": f, "score": round(combined, 3)})
+        combined = (0.45 * f["score"] + 0.35 * q["affiliate_fit"]
+                    + 0.20 * (float(t["audience_fit"] or 0) / 10.0))
+        # promote the qualify product_hint if the topic didn't carry one
+        if q["product_hint"] and not (t["product_hint"] or "").strip():
+            conn.execute("UPDATE topics SET product_hint=? WHERE id=?",
+                         (q["product_hint"], t["id"]))
+            conn.commit()
+        scored.append({"topic": t, "feasibility": f, "qualify": q,
+                       "score": round(combined, 3)})
     scored.sort(key=lambda x: x["score"], reverse=True)
     passed = [s for s in scored if s["feasibility"]["score"] >= min_score]
-    return passed or scored[:1]              # never return empty; worst-case best-effort
+    return passed or scored[:1] or []        # empty only if EVERY topic failed the gates

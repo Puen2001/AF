@@ -30,11 +30,15 @@ def main():
     print(f"[topic] {len(cands)} candidates. Stage 0.5 — FOOTAGE FEASIBILITY SCAN...", flush=True)
 
     ranked = topics.rank(conn, cfg, cands)
+    if not ranked:
+        print("[topic] no rights-safe + affiliate-able + footage-tellable topic — stopping "
+              "(re-run to discover fresh topics)", flush=True)
+        return
     for r in ranked:
-        f = r["feasibility"]
+        f, q = r["feasibility"], r.get("qualify", {})
         print(f"[topic] score {r['score']:.2f} | footage {f['score']:.2f} "
-              f"({f['searchable']}/{f['total']} beats, core-confirmed={f['confirmed']}) "
-              f"| {r['topic']['title'][:55]}", flush=True)
+              f"({f['searchable']}/{f['total']}) | affiliate {q.get('affiliate_fit','?')} "
+              f"| {r['topic']['title'][:50]}", flush=True)
     win = ranked[0]["topic"]
     print(f"[topic] WINNER: {win['title']}  (beats: {ranked[0]['feasibility']['beats']})", flush=True)
 
