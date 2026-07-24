@@ -66,7 +66,7 @@ def product_reviews(query: str, cfg: dict) -> dict | None:
     try:
         return claude_p(REVIEW_PROMPT.format(query=query),
                         sg.get("research_model", sg.get("model", cfg.get("model", "sonnet"))),
-                        tools="WebSearch", timeout=300)
+                        tools="WebSearch", timeout=200)
     except Exception:
         return None
 
@@ -80,7 +80,7 @@ def ensure_topic(conn, topic, cfg) -> dict | None:
         brief = claude_p(
             TOPIC_PROMPT.format(title=topic["title"], angle=topic["angle"] or ""),
             sg.get("research_model", sg.get("model", cfg.get("model", "sonnet"))),
-            tools="WebSearch", timeout=420)
+            tools="WebSearch", timeout=200)
     except Exception:
         return None
     conn.execute("UPDATE topics SET research=? WHERE id=?",
@@ -100,7 +100,7 @@ def ensure(conn, product, cfg) -> dict | None:
                                    category=product["category"] or "gadget",
                                    price=int(product["price_thb"] or 0)),
             sg.get("research_model", sg.get("model", cfg.get("model", "sonnet"))),
-            tools="WebSearch", timeout=420)
+            tools="WebSearch", timeout=200)
     except Exception:
         return None  # pipeline degrades to seed facts, never blocks
     conn.execute("UPDATE products SET research=? WHERE id=?",
