@@ -82,14 +82,16 @@ def process(conn, cfg) -> int:
     for v in approved:
         s = conn.execute("SELECT * FROM scripts WHERE id=?",
                          (v["script_id"],)).fetchone()
-        p = conn.execute("SELECT * FROM products WHERE id=?",
-                         (s["product_id"],)).fetchone()
+        p = (conn.execute("SELECT * FROM products WHERE id=?",
+                          (s["product_id"],)).fetchone()
+             if s["product_id"] else None)          # topic-mode scripts have no product
+        affiliate_link = p["affiliate_link"] if p else None
         body = json.loads(s["body"])
 
         url = None
         if creds:
             try:
-                url = _upload_youtube(creds, v, body, cfg, p["affiliate_link"])
+                url = _upload_youtube(creds, v, body, cfg, affiliate_link)
                 conn.execute(
                     "INSERT INTO posts (video_id, platform, url, posted_at) "
                     "VALUES (?,?,?,?)", (v["id"], "youtube", url, db.now()))
@@ -102,8 +104,8 @@ def process(conn, cfg) -> int:
         tt_caption = (tt.get("caption") or body.get("caption", ""))
         if tt.get("hashtags"):
             tt_caption += "\n" + " ".join(tt["hashtags"])
-        if p["affiliate_link"]:
-            tt_caption += f"\nลิงก์สินค้า: {p['affiliate_link']}"
+        if affiliate_link:
+            tt_caption += f"\nลิงก์สินค้า: {affiliate_link}"
         approve.notify(
             (f"🚀 โพสต์ YouTube แล้ว: {url}\n\n" if url else "")
             + f"📋 TikTok — ก๊อปแคปชันนี้ไปโพสต์คู่กับวิดีโอด้านบน:\n\n{tt_caption}")

@@ -221,27 +221,34 @@ def shortlist(shots: list[dict], cfg: dict | None = None, n: int = 4,
               product_media: list[str] | None = None) -> list[dict]:
     """For each shot, download the top-N candidate clips/stills so a human can
     pick the best. Product shots get their listing media + composited stills too."""
+    from . import footage
+    is_vid = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in ("mp4", "webm", "mov")
     media = list(product_media or [])
     out = []
     for i, s in enumerate(shots or []):
         is_product = s.get("type") == "product"
+        query = (s.get("query") or "").strip()
         files = []
+        # product's own listing video first (skip stills)
         if i < len(media):
             f = _download(media[i])
-            if f:
+            if is_vid(f):
                 files.append(f)
-        for c in _ranked((s.get("query") or "").strip(), is_product, n):
-            f = _download(c["url"])
-            if not f:
-                continue
-            if is_product and str(f).lower().rsplit(".", 1)[-1] in (
-                    "jpg", "jpeg", "png", "webp"):
-                from . import product_shot
-                comp = product_shot.make(f, idx=i)
-                f = comp or f
-            files.append(f)
+        # real YouTube video segments — the candidates the human actually wants
+        for hit in footage.shortlist(query, want_seconds=7.0, n=n):
+            files.append(hit["file"])
             if len(files) >= n:
                 break
+        # top up with stock/CC VIDEO only if still short (never still images)
+        if len(files) < n:
+            for c in _ranked(query, is_product, n):
+                if c.get("duration") is None:          # image candidate → skip
+                    continue
+                f = _download(c["url"])
+                if is_vid(f):
+                    files.append(f)
+                if len(files) >= n:
+                    break
         out.append({"query": s.get("query"), "type": s.get("type"),
                     "from": s.get("from"), "to": s.get("to"), "candidates": files})
     return out
@@ -284,34 +291,55 @@ def _download(url: str) -> str | None:
         return None
 
 
+def _best_video(query: str, want_product: bool = False) -> dict | None:
+    """VIDEO-ONLY stock/CC fallback — no still images. Real clips only, so a shot
+    without a YouTube match still gets motion, never a Ken-Burns'd photo."""
+    for q in _broaden(query, want_product):
+        if not q:
+            continue
+        cands = _pexels(q) + _pixabay(q) + _wikimedia(q) + _archive_org(q)
+        cands = [c for c in cands if c["height"] >= MIN_H
+                 and c.get("duration") is not None and c["duration"] >= DUR_MIN]
+        if cands:
+            return max(cands, key=_score)
+    return None
+
+
 def resolve(shots: list[dict], cfg: dict | None = None,
             product_media: list[str] | None = None) -> list[dict]:
-    """Attach a local clip file to each shot (file=None if unresolvable → gradient).
-    product_media (direct clip URLs from the product listing) is tried first."""
+    """Attach a local VIDEO clip to each shot (file=None → gradient). Video only —
+    no still images. Source order: product's own listing video → real YouTube
+    segment (the footage engine) → stock/CC video → gradient."""
+    from . import footage
+    is_vid = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in ("mp4", "webm", "mov")
     media_pool = list(product_media or [])
     out = []
-    is_img = lambda f: f and str(f).lower().rsplit(".", 1)[-1] in (
-        "jpg", "jpeg", "png", "webp")
     for i, s in enumerate(shots or []):
         if s.get("file"):
             out.append(s)
             continue
-        chosen, is_product = None, s.get("type") == "product"
-        # product's own listing photo first — most relevant + license-clean
+        query, is_product = (s.get("query") or "").strip(), s.get("type") == "product"
+        chosen = None
+        # 1. product's OWN listing media — only if it's a video (skip stills)
         if i < len(media_pool):
-            chosen = _download(media_pool[i])
+            f = _download(media_pool[i])
+            if is_vid(f):
+                chosen = f
+                s = {**s, "source": "product-media"}
+        # 2. real YouTube segment — the footage that actually shows the scene
         if not chosen:
-            best = _best_for((s.get("query") or "").strip(), want_product=is_product)
+            hit = footage.best_clip(query, want_seconds=7.0)
+            if hit:
+                chosen = hit["file"]
+                s = {**s, "source": "youtube", "ref": hit["url"],
+                     "ref_title": hit["title"]}
+        # 3. stock / Creative-Commons VIDEO (never a still)
+        if not chosen:
+            best = _best_video(query, want_product=is_product)
             if best:
-                chosen = _download(best["url"])
-                if chosen:
+                f = _download(best["url"])
+                if is_vid(f):
+                    chosen = f
                     s = {**s, "source": best["source"], "res": best["height"]}
-        # transform a raw product still into a clean branded shot (safer + nicer)
-        if chosen and is_product and is_img(chosen):
-            from . import product_shot
-            shot = product_shot.make(chosen, idx=i)
-            if shot:
-                chosen = shot
-                s = {**s, "composited": True}
         out.append({**s, "file": chosen})
     return out
