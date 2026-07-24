@@ -40,7 +40,8 @@ discover → scriptgen → voice → render → approve (Telegram) → publish �
 - **discover** — Shopee affiliate product feed + Google Trends TH; seed list fallback so the pipeline never blocks.
 - **scriptgen** — `claude -p` (sonnet): Thai script from hook bank; second pass fact-checks claims against product-page text, rejects unverifiable claims.
 - **voice** — Edge-TTS Thai neural voices (Premwadee/Niwat).
-- **render** — FFmpeg 1080×1920: product images + free stock b-roll + kinetic Thai captions (Noto Sans Thai), burn-in subs from script text.
+- **footage** — the **Footage Discovery Engine** (see `docs/FOOTAGE-DISCOVERY-ENGINE.md`): the system does NOT generate video. It researches, ranks, and recommends *existing* footage references per scene (auto-fetch tier for stock/CC/product-media; recommend-reference tier for YouTube/social, with attribution + licensing + confidence), and a human picks the best on the curation web page.
+- **render** — FFmpeg 1080×1920: chosen footage + product-shot composites + kinetic Thai captions (Noto Sans Thai), hard cuts, Ken Burns, burn-in subs from script text.
 - **approve** — video + caption + links → Telegram; ✅/❌ reply flips status. This gate is the entire recurring human job.
 - **publish** — YouTube Shorts fully auto (Data API); TikTok = ready-to-post package delivered to phone for a 2-tap manual post (official Content Posting API applied for in parallel; never unofficial APIs).
 - **report** — weekly digest to Telegram: top hooks/products/CTR + commissions → reweights next week's generation.

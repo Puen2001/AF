@@ -178,6 +178,30 @@ def _script_text(body: dict) -> str:
     return body["hook"] + " " + " ".join(body["lines"])
 
 
+def _fallback_shots(topic, body, subject, model) -> list[dict]:
+    """Never let footage come back empty (→ all-gradient video). Derive English
+    stock-footage queries from the story + spread them across the lines."""
+    qs = []
+    try:
+        r = claude_p(
+            f'ให้คำค้นหา stock footage ภาษาอังกฤษ 4 คำ เห็นภาพจริง เกี่ยวกับ: '
+            f'"{subject}" / เรื่อง "{topic["title"]}". ช็อตแรกควรโชว์ของ/ประธานหลัก. '
+            f'ตอบ JSON: {{"q": ["...","...","...","..."]}}', model).get("q", [])
+        qs = [q for q in r if q]
+    except Exception:
+        qs = []
+    if not qs:
+        qs = [subject or topic["title"]]
+    n = len(body["lines"])
+    per = max(1, (n + 1) // len(qs))
+    out = []
+    for i, q in enumerate(qs):
+        frm, to = i * per, (n if i == len(qs) - 1 else min(n, (i + 1) * per))
+        out.append({"from": frm, "to": to, "query": q,
+                    "type": "product" if i == 0 and body.get("product") else "context"})
+    return out
+
+
 def generate_one(conn, product, cfg, suggested_angle: str | None = None) -> dict:
     sg = cfg.get("scriptgen", {})
     n_drafts = sg.get("drafts", 3)
@@ -364,14 +388,21 @@ def generate_from_topic(conn, topic, cfg, suggested_angle: str | None = None) ->
             disclosure=cfg["disclosure"]), model)
     except Exception:
         pass
-    try:
-        numbered = "\n".join(
-            f"{i}. {t}" for i, t in enumerate([body["hook"], *body["lines"]]))
-        subject = (body.get("product") or {}).get("category") or topic["title"]
-        body["shots"] = claude_p(SHOTS_PROMPT.format(
-            numbered_lines=numbered, subject=subject), model).get("shots", [])
-    except Exception:
-        body["shots"] = []
+    numbered = "\n".join(
+        f"{i}. {t}" for i, t in enumerate([body["hook"], *body["lines"]]))
+    subject = (body.get("product") or {}).get("category") or topic["title"]
+    shots = []
+    for _ in range(2):  # retry — an empty shot list means an all-gradient video
+        try:
+            shots = claude_p(SHOTS_PROMPT.format(
+                numbered_lines=numbered, subject=subject), model).get("shots", [])
+        except Exception:
+            shots = []
+        if shots:
+            break
+    if not shots:  # guaranteed fallback: derive English b-roll queries from the story
+        shots = _fallback_shots(topic, body, subject, model)
+    body["shots"] = shots
 
     body["meta"] = {"angle": angles[best], "topic_id": topic["id"],
                     "has_product": bool(body["product"]), "judge": judge}

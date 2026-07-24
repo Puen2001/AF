@@ -55,8 +55,15 @@ filter 🔒 (needs affiliate API).
 **Shopee affiliate**: base commission thin → target Extra-Comm SKUs 🔒; TikTok caption
 links NOT clickable → pinned-comment/bio ⬜; ฿79-299 impulse band ✅ (in triage).
 
-**Rejected** (researched, decided against): AI video generation (token cost), raw
-YouTube/TikTok clip ripping (copyright/strikes), multi-agent frameworks, stock-as-only.
+**Footage Discovery Engine** (`docs/FOOTAGE-DISCOVERY-ENGINE.md`) — the footage module's
+authoritative design: NOT generation. AI = elite footage researcher that discovers/ranks/
+recommends existing footage per scene, two tiers (auto-fetch legal ✅ / recommend-reference
+w/ attribution+license+confidence ⬜), + a footage DB with memory ⬜. broll+shortlist+curate
++outliers are its built seed.
+
+**Rejected** (researched, decided against): **AI video generation — REMOVED from scope**
+(cost + authenticity); raw YouTube/TikTok clip *reposting* (copyright/strikes — but
+referencing for human licensing is in-scope via the engine); multi-agent frameworks.
 
 ## Operator unblocks (all free, gate the 🔒 items)
 1. Pexels API key → real stock b-roll. 2. Shopee affiliate signup → product media +

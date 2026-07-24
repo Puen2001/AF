@@ -57,8 +57,8 @@ scriptgen:
   polish_model: opus   # final rewrite — the words that actually ship
 
 daily_quota: 1            # videos to fully produce per daily run
-script_seconds: [20, 40]  # target spoken length
-script_words: [55, 100]   # Thai word-count proxy for the length above
+script_seconds: [20, 40]  # target spoken length (keep finished video under ~55s)
+script_words: [45, 70]    # Thai word-count proxy — tightened (slow voice runs long)
 
 hooks:
   - id: did-you-know
