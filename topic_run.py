@@ -10,7 +10,8 @@ from pathlib import Path
 
 import yaml
 
-from factory import broll, db, render, scriptgen, topics, trends, voice
+from factory import (broll, db, remotion_render, render, scriptgen, topics,
+                     trends, voice)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -66,10 +67,20 @@ def main():
               f"{s.get('ref','')}", flush=True)
     print(f"[topic] {matched}/{len(shots)} beats matched real footage", flush=True)
 
-    print("[topic] render...", flush=True)
-    mp4 = render.render(meta, vdir, body=body, shots=shots)
+    # need captions.ass-independent word timing + voice.mp3 on disk for Remotion
+    render.build_ass(meta["words"], vdir / "captions.ass")  # keep for ffmpeg fallback
+    engine = "remotion"
+    try:
+        if not remotion_render.available():
+            raise RuntimeError("remotion not installed")
+        print("[topic] render via Remotion (animated captions)...", flush=True)
+        mp4 = remotion_render.render(meta, vdir, body=body, shots=shots, cfg=cfg)
+    except Exception as e:
+        print(f"[topic] Remotion render failed ({e}); falling back to ffmpeg", flush=True)
+        engine = "ffmpeg"
+        mp4 = render.render(meta, vdir, body=body, shots=shots)
     conn.execute("INSERT INTO videos (script_id, template, file, status, created_at) "
-                 "VALUES (?,?,?,?,?)", (row["id"], "topic-first", str(mp4),
+                 "VALUES (?,?,?,?,?)", (row["id"], f"topic-first/{engine}", str(mp4),
                                         "rendered", db.now()))
     conn.commit()
     import os
